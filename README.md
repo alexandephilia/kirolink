@@ -2,7 +2,7 @@
 
 ```
 
-     Claude Code                Cherry Studio
+     Claude Code                OpenClaw
           |                           |
           |                           |
           v                           |
@@ -15,7 +15,7 @@
     kiro-claude-proxy server          |
           |                           |
           v                           v
-        claude                kiro-claude-proxy server
+        claude                 kiro-claude-proxy server
 
 ```
 
@@ -23,9 +23,6 @@ This is a Go CLI tool for managing Kiro authentication tokens and providing an A
 
 ### Claude Code
 <img width="1920" height="1040" alt="image" src="https://github.com/user-attachments/assets/25f02026-f316-4a27-831c-6bc28cb03fca" />
-
-### Cherry Studio
-<img width="1920" height="1040" alt="image" src="https://github.com/user-attachments/assets/9bb24690-1e96-4a85-a7fc-bf7cdee95c09" />
 
 ## Features
 
