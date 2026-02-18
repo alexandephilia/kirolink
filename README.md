@@ -22,7 +22,8 @@
 This is a Go CLI tool for managing Kiro authentication tokens and providing an Anthropic-compatible API proxy.
 
 ### Claude Code
-<img width="1920" height="1040" alt="image" src="https://github.com/user-attachments/assets/25f02026-f316-4a27-831c-6bc28cb03fca" />
+
+<img width="1920" height="1040" alt="image" src="Kiro-Claude-Code.png" />
 
 ## Features
 
