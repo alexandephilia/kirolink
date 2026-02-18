@@ -136,47 +136,62 @@ func getMessageContent(content any) string {
 	switch v := content.(type) {
 	case string:
 		if len(v) == 0 {
-			return "answer for user qeustion"
+			return "answer for user question"
 		}
 		return v
 	case []interface{}:
 		var texts []string
 		for _, block := range v {
-
 			if m, ok := block.(map[string]interface{}); ok {
-				var cb ContentBlock
-				if data, err := jsonStr.Marshal(m); err == nil {
-					if err := jsonStr.Unmarshal(data, &cb); err == nil {
-						switch cb.Type {
-						case "tool_result":
-							texts = append(texts, *cb.Content)
-						case "text":
-							texts = append(texts, *cb.Text)
+				blockType, _ := m["type"].(string)
+				switch blockType {
+				case "text":
+					if text, ok := m["text"].(string); ok {
+						texts = append(texts, text)
+					}
+				case "tool_result":
+					// tool_result content can be a string or an array of content blocks
+					switch c := m["content"].(type) {
+					case string:
+						texts = append(texts, c)
+					case []interface{}:
+						for _, item := range c {
+							if itemMap, ok := item.(map[string]interface{}); ok {
+								if itemMap["type"] == "text" {
+									if text, ok := itemMap["text"].(string); ok {
+										texts = append(texts, text)
+									}
+								}
+							}
 						}
 					}
-
+				case "tool_use":
+					// Extract tool call as a text representation so the model sees what was called
+					name, _ := m["name"].(string)
+					if inputObj, ok := m["input"]; ok {
+						if inputData, err := jsonStr.Marshal(inputObj); err == nil {
+							texts = append(texts, fmt.Sprintf("[Tool call: %s(%s)]", name, string(inputData)))
+						}
+					}
 				}
 			}
-
 		}
 		if len(texts) == 0 {
 			s, err := jsonStr.Marshal(content)
 			if err != nil {
-				return "answer for user qeustion"
+				return "answer for user question"
 			}
-
 			log.Printf("uncatch: %s", string(s))
-			return "answer for user qeustion"
+			return "answer for user question"
 		}
 		return strings.Join(texts, "\n")
 	default:
 		s, err := jsonStr.Marshal(content)
 		if err != nil {
-			return "answer for user qeustion"
+			return "answer for user question"
 		}
-
 		log.Printf("uncatch: %s", string(s))
-		return "answer for user qeustion"
+		return "answer for user question"
 	}
 }
 
@@ -226,6 +241,7 @@ var ModelMap = map[string]string{
 }
 
 var enforcedSystemPrompts = []string{
+	"Your name is Claude. You are a helpful AI assistant created by Anthropic.",
 	"ultrathink",
 	"think harder",
 }
@@ -271,9 +287,19 @@ func buildCodeWhispererRequest(anthropicReq AnthropicRequest) CodeWhispererReque
 
 		// First add each system message as an independent history entry
 
+		// Define a more specific assistant acknowledgement
 		assistantDefaultMsg := HistoryAssistantMessage{}
-		assistantDefaultMsg.AssistantResponseMessage.Content = getMessageContent("I will follow these instructions")
+		assistantDefaultMsg.AssistantResponseMessage.Content = "Understood. I am Claude, a model created by Anthropic, and I will strictly follow your instructions while maintaining this identity."
 		assistantDefaultMsg.AssistantResponseMessage.ToolUses = make([]any, 0)
+
+		// Always inject identity prompt with model awareness
+		identityPrompt := fmt.Sprintf("You are %s, a model created by Anthropic. Your name is Claude. You are NOT Kiro. If anyone asks who you are, you must identify as Claude.", anthropicReq.Model)
+		identityUserMsg := HistoryUserMessage{}
+		identityUserMsg.UserInputMessage.Content = identityPrompt
+		identityUserMsg.UserInputMessage.ModelId = ModelMap[anthropicReq.Model]
+		identityUserMsg.UserInputMessage.Origin = "AI_EDITOR"
+		history = append(history, identityUserMsg)
+		history = append(history, assistantDefaultMsg)
 
 		// Always inject extra instruction prompts.
 		for _, prompt := range enforcedSystemPrompts {
@@ -742,7 +768,7 @@ func handleStreamRequest(w http.ResponseWriter, anthropicReq AnthropicRequest, a
 		return
 	}
 
-	// fmt.Printf("CodeWhisperer streaming request body:\n%s\n", string(cwReqBody))
+	fmt.Printf("CodeWhisperer streaming request body:\n%s\n", string(cwReqBody))
 
 	// Create streaming proxy request
 	proxyReq, err := http.NewRequest(
@@ -876,7 +902,7 @@ func handleNonStreamRequest(w http.ResponseWriter, anthropicReq AnthropicRequest
 		return
 	}
 
-	// fmt.Printf("CodeWhisperer request body:\n%s\n", string(cwReqBody))
+	fmt.Printf("CodeWhisperer request body:\n%s\n", string(cwReqBody))
 
 	// Create proxy request
 	proxyReq, err := http.NewRequest(

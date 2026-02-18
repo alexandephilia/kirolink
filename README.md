@@ -112,6 +112,44 @@ The tool exports:
 - `ANTHROPIC_BASE_URL`: `http://localhost:8080`
 - `ANTHROPIC_API_KEY`: current access token
 
+## Known Limitations
+
+### Web Search
+
+Claude Code's **native Web Search** tool does not work through this proxy. The CodeWhisperer backend API does not support the tool_use/tool_result round-trip cycle required by Claude Code's built-in tools.
+
+**Workaround:** Use MCP (Model Context Protocol) servers instead. MCP tools run locally on your machine, so they bypass the proxy entirely.
+
+Add the following to your `~/.claude.json` under `"mcpServers"`:
+
+```json
+{
+  "mcpServers": {
+    "fetch": {
+      "command": "uvx",
+      "args": ["mcp-server-fetch"],
+      "env": {},
+      "disabled": false,
+      "autoApprove": []
+    },
+    "exa": {
+      "command": "npx",
+      "args": ["-y", "exa-mcp-server"],
+      "env": {
+        "EXA_API_KEY": "your-exa-api-key"
+      },
+      "disabled": false,
+      "autoApprove": []
+    }
+  }
+}
+```
+
+- **[mcp-server-fetch](https://github.com/modelcontextprotocol/servers/tree/main/src/fetch)** — Fetches and extracts content from any URL
+- **[exa-mcp-server](https://github.com/exa-labs/exa-mcp-server)** — AI-powered web search via [Exa](https://exa.ai) (requires an API key)
+
+After adding, restart Claude Code to pick up the new MCP configuration.
+
 ## Cross-Platform Support
 
 - Windows: `set` / PowerShell `$env:` format
