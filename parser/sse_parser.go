@@ -62,31 +62,46 @@ func ParseEvents(resp []byte) []SSEEvent {
 			break
 		}
 
-		payloadStr := strings.TrimPrefix(string(payload), "vent")
+		// Handle binary framing and clean up payload
+		payloadStr := string(payload)
+		if idx := strings.Index(payloadStr, "{"); idx != -1 {
+			payloadStr = payloadStr[idx:]
+		}
 
-		var evt assistantResponseEvent
-		if err := json.Unmarshal([]byte(payloadStr), &evt); err == nil {
+		// First try parsing as assistantResponseEvent
+		var assistantEvt assistantResponseEvent
+		if err := json.Unmarshal([]byte(payloadStr), &assistantEvt); err == nil && (assistantEvt.Content != "" || assistantEvt.ToolUseId != "" || assistantEvt.Stop) {
+			events = append(events, convertAssistantEventToSSE(assistantEvt))
 
-			events = append(events, convertAssistantEventToSSE(evt))
-
-			if evt.ToolUseId != "" && evt.Name != "" {
-				if evt.Stop {
-					events = append(events, SSEEvent{
-						Event: "message_delta",
-						Data: map[string]interface{}{
-							"type": "message_delta",
-							"delta": map[string]interface{}{
-								"stop_reason":   "tool_use",
-								"stop_sequence": nil,
-							},
-							"usage": map[string]interface{}{"output_tokens": 0},
+			if assistantEvt.ToolUseId != "" && assistantEvt.Name != "" && assistantEvt.Stop {
+				events = append(events, SSEEvent{
+					Event: "message_delta",
+					Data: map[string]interface{}{
+						"type": "message_delta",
+						"delta": map[string]interface{}{
+							"stop_reason":   "tool_use",
+							"stop_sequence": nil,
 						},
-					})
-				}
-
+						"usage": map[string]interface{}{"output_tokens": 0},
+					},
+				})
 			}
-		} else {
-			log.Println("json unmarshal error:", err)
+			continue
+		}
+
+		// Handling 2026+ metadata events (metering, context usage)
+		var metaData map[string]any
+		if err := json.Unmarshal([]byte(payloadStr), &metaData); err == nil {
+			if _, exists := metaData["contextUsagePercentage"]; exists {
+				// Translate to a ping/metadata event for Claude Code
+				events = append(events, SSEEvent{
+					Event: "ping",
+					Data:  map[string]any{"type": "ping", "metadata": metaData},
+				})
+			} else if _, exists := metaData["unit"]; exists {
+				// Metering event - silently consume or log lightly
+				log.Printf("Usage: %v %v", metaData["usage"], metaData["unit"])
+			}
 		}
 	}
 
