@@ -216,10 +216,13 @@ type CodeWhispererEvent struct {
 }
 
 var ModelMap = map[string]string{
-	"claude-sonnet-4-20250514":   "CLAUDE_SONNET_4_20250514_V1_0",
+	"claude-sonnet-4-6":          "CLAUDE_SONNET_4_6_V1_0",
 	"claude-sonnet-4-5-20250929": "CLAUDE_SONNET_4_5_20250929_V1_0",
+	"claude-sonnet-4-20250514":   "CLAUDE_SONNET_4_6_V1_0",
 	"claude-haiku-4-5-20251001":  "CLAUDE_HAIKU_4_5_20251001_V1_0",
-	"claude-3-5-haiku-20241022":  "CLAUDE_3_7_SONNET_20250219_V1_0",
+	"claude-3-5-sonnet-20241022": "CLAUDE_SONNET_4_6_V1_0",
+	"claude-3-5-haiku-20241022":  "CLAUDE_HAIKU_4_5_20251001_V1_0",
+	"claude-3-7-sonnet-20250219": "CLAUDE_SONNET_4_6_V1_0",
 }
 
 var enforcedSystemPrompts = []string{
@@ -641,7 +644,9 @@ func startServer(port string) {
 			for k := range ModelMap {
 				available = append(available, k)
 			}
-			http.Error(w, fmt.Sprintf("{\"message\":\"Unknown or unsupported model: %s\",\"availableModels\":[%s]}", anthropicReq.Model, "\""+strings.Join(available, "\",\"")+"\""), http.StatusBadRequest)
+			errMsg := fmt.Sprintf("{\"message\":\"Unknown or unsupported model: %s\",\"availableModels\":[%s]}", anthropicReq.Model, "\""+strings.Join(available, "\",\"")+"\"")
+			fmt.Printf("错误: 未知模型请求: %s\n", anthropicReq.Model)
+			http.Error(w, errMsg, http.StatusBadRequest)
 			return
 		}
 
@@ -653,6 +658,36 @@ func startServer(port string) {
 
 		// Handle non-streaming request
 		handleNonStreamRequest(w, anthropicReq, token.AccessToken)
+	}))
+
+	// Add models endpoint
+	mux.HandleFunc("/v1/models", logMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		type ModelEntry struct {
+			ID      string `json:"id"`
+			Object  string `json:"object"`
+			Created int64  `json:"created"`
+			OwnedBy string `json:"owned_by"`
+		}
+		type ModelsResponse struct {
+			Object string       `json:"object"`
+			Data   []ModelEntry `json:"data"`
+		}
+
+		var data []ModelEntry
+		for k := range ModelMap {
+			data = append(data, ModelEntry{
+				ID:      k,
+				Object:  "model",
+				Created: 1686960000,
+				OwnedBy: "anthropic",
+			})
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		jsonStr.NewEncoder(w).Encode(ModelsResponse{
+			Object: "list",
+			Data:   data,
+		})
 	}))
 
 	// Add health check endpoint
@@ -671,6 +706,7 @@ func startServer(port string) {
 	fmt.Printf("Starting Anthropic API proxy server on port: %s\n", port)
 	fmt.Printf("Available endpoints:\n")
 	fmt.Printf("  POST /v1/messages - Anthropic API proxy\n")
+	fmt.Printf("  GET  /v1/models   - List available models\n")
 	fmt.Printf("  GET  /health      - Health check\n")
 	fmt.Printf("Press Ctrl+C to stop the server\n")
 
