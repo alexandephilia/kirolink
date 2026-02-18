@@ -1,0 +1,14 @@
+# Binary
+kiro-claude-proxy
+kiro-claude-proxy.exe
+
+# Logs
+*.log
+proxy.log
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store
