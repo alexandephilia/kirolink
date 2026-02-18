@@ -324,11 +324,11 @@ func buildCodeWhispererRequest(anthropicReq AnthropicRequest) CodeWhispererReque
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Println("用法:")
-		fmt.Println("  kiro-claude-proxy read    - 读取并显示token")
-		fmt.Println("  kiro-claude-proxy refresh - 刷新token")
-		fmt.Println("  kiro-claude-proxy export  - 导出环境变量")
-		fmt.Println("  kiro-claude-proxy claude  - 跳过 claude 地区限制")
+		fmt.Println("Usage:")
+		fmt.Println("  kiro-claude-proxy read    - Read and display token")
+		fmt.Println("  kiro-claude-proxy refresh - Refresh token")
+		fmt.Println("  kiro-claude-proxy export  - Export environment variables")
+		fmt.Println("  kiro-claude-proxy claude  - Skip Claude region restrictions")
 		fmt.Println("  kiro-claude-proxy server [port] - Start Anthropic API proxy server")
 		fmt.Println("  author https://github.com/bestK/kiro2cc")
 		os.Exit(1)
@@ -353,7 +353,7 @@ func main() {
 		}
 		startServer(port)
 	default:
-		fmt.Printf("未知命令: %s\n", command)
+		fmt.Printf("Unknown command: %s\n", command)
 		os.Exit(1)
 	}
 }
@@ -362,7 +362,7 @@ func main() {
 func getTokenFilePath() string {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		fmt.Printf("获取用户目录失败: %v\n", err)
+		fmt.Printf("Failed to get user home directory: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -375,21 +375,21 @@ func readToken() {
 
 	data, err := os.ReadFile(tokenPath)
 	if err != nil {
-		fmt.Printf("读取token文件失败: %v\n", err)
+		fmt.Printf("Failed to read token file: %v\n", err)
 		os.Exit(1)
 	}
 
 	var token TokenData
 	if err := jsonStr.Unmarshal(data, &token); err != nil {
-		fmt.Printf("解析token文件失败: %v\n", err)
+		fmt.Printf("Failed to parse token file: %v\n", err)
 		os.Exit(1)
 	}
 
-	fmt.Println("Token信息:")
+	fmt.Println("Token Information:")
 	fmt.Printf("Access Token: %s\n", token.AccessToken)
 	fmt.Printf("Refresh Token: %s\n", token.RefreshToken)
 	if token.ExpiresAt != "" {
-		fmt.Printf("过期时间: %s\n", token.ExpiresAt)
+		fmt.Printf("Expires at: %s\n", token.ExpiresAt)
 	}
 }
 
@@ -400,13 +400,13 @@ func refreshToken() {
 	// Read current token
 	data, err := os.ReadFile(tokenPath)
 	if err != nil {
-		fmt.Printf("读取token文件失败: %v\n", err)
+		fmt.Printf("Failed to read token file: %v\n", err)
 		os.Exit(1)
 	}
 
 	var currentToken TokenData
 	if err := jsonStr.Unmarshal(data, &currentToken); err != nil {
-		fmt.Printf("解析token文件失败: %v\n", err)
+		fmt.Printf("Failed to parse token file: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -417,7 +417,7 @@ func refreshToken() {
 
 	reqBody, err := jsonStr.Marshal(refreshReq)
 	if err != nil {
-		fmt.Printf("序列化请求失败: %v\n", err)
+		fmt.Printf("Failed to serialize request: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -428,21 +428,21 @@ func refreshToken() {
 		bytes.NewBuffer(reqBody),
 	)
 	if err != nil {
-		fmt.Printf("刷新token请求失败: %v\n", err)
+		fmt.Printf("Failed to refresh token request: %v\n", err)
 		os.Exit(1)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		fmt.Printf("刷新token失败，状态码: %d, 响应: %s\n", resp.StatusCode, string(body))
+		fmt.Printf("Failed to refresh token, status code: %d, response: %s\n", resp.StatusCode, string(body))
 		os.Exit(1)
 	}
 
 	// Parse response
 	var refreshResp RefreshResponse
 	if err := jsonStr.NewDecoder(resp.Body).Decode(&refreshResp); err != nil {
-		fmt.Printf("解析刷新响应失败: %v\n", err)
+		fmt.Printf("Failed to parse refresh response: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -451,17 +451,17 @@ func refreshToken() {
 
 	newData, err := jsonStr.MarshalIndent(newToken, "", "  ")
 	if err != nil {
-		fmt.Printf("序列化新token失败: %v\n", err)
+		fmt.Printf("Failed to serialize new token: %v\n", err)
 		os.Exit(1)
 	}
 
 	if err := os.WriteFile(tokenPath, newData, 0600); err != nil {
-		fmt.Printf("写入token文件失败: %v\n", err)
+		fmt.Printf("Failed to write token file: %v\n", err)
 		os.Exit(1)
 	}
 
-	fmt.Println("Token刷新成功!")
-	fmt.Printf("新的Access Token: %s\n", newToken.AccessToken)
+	fmt.Println("Token refreshed successfully!")
+	fmt.Printf("New Access Token: %s\n", newToken.AccessToken)
 }
 
 // exportEnvVars exports environment variables
@@ -470,13 +470,13 @@ func exportEnvVars() {
 
 	data, err := os.ReadFile(tokenPath)
 	if err != nil {
-		fmt.Printf("读取 token失败,请先安装 Kiro 并登录！: %v\n", err)
+		fmt.Printf("Failed to read token, please install Kiro and login first!: %v\n", err)
 		os.Exit(1)
 	}
 
 	var token TokenData
 	if err := jsonStr.Unmarshal(data, &token); err != nil {
-		fmt.Printf("解析token文件失败: %v\n", err)
+		fmt.Printf("Failed to parse token file: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -498,21 +498,21 @@ func setClaude() {
 	// C:\Users\WIN10\.claude.json
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		fmt.Printf("获取用户目录失败: %v\n", err)
+		fmt.Printf("Failed to get user home directory: %v\n", err)
 		os.Exit(1)
 	}
 
 	claudeJsonPath := filepath.Join(homeDir, ".claude.json")
 	ok, _ := FileExists(claudeJsonPath)
 	if !ok {
-		fmt.Println("未找到Claude配置文件，请确认是否已安装 Claude Code")
+		fmt.Println("Claude configuration file not found, please check if Claude Code is installed")
 		fmt.Println("npm install -g @anthropic-ai/claude-code")
 		os.Exit(1)
 	}
 
 	data, err := os.ReadFile(claudeJsonPath)
 	if err != nil {
-		fmt.Printf("读取 Claude 文件失败: %v\n", err)
+		fmt.Printf("Failed to read Claude file: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -521,7 +521,7 @@ func setClaude() {
 	err = jsonStr.Unmarshal(data, &jsonData)
 
 	if err != nil {
-		fmt.Printf("解析 JSON 文件失败: %v\n", err)
+		fmt.Printf("Failed to parse JSON file: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -531,18 +531,18 @@ func setClaude() {
 	newJson, err := json.MarshalIndent(jsonData, "", "  ")
 
 	if err != nil {
-		fmt.Printf("生成 JSON 文件失败: %v\n", err)
+		fmt.Printf("Failed to generate JSON file: %v\n", err)
 		os.Exit(1)
 	}
 
 	err = os.WriteFile(claudeJsonPath, newJson, 0644)
 
 	if err != nil {
-		fmt.Printf("写入 JSON 文件失败: %v\n", err)
+		fmt.Printf("Failed to write JSON file: %v\n", err)
 		os.Exit(1)
 	}
 
-	fmt.Println("Claude 配置文件已更新")
+	fmt.Println("Claude configuration file updated")
 
 }
 
@@ -552,12 +552,12 @@ func getToken() (TokenData, error) {
 
 	data, err := os.ReadFile(tokenPath)
 	if err != nil {
-		return TokenData{}, fmt.Errorf("读取token文件失败: %v", err)
+		return TokenData{}, fmt.Errorf("Failed to read token file: %v", err)
 	}
 
 	var token TokenData
 	if err := jsonStr.Unmarshal(data, &token); err != nil {
-		return TokenData{}, fmt.Errorf("解析token文件失败: %v", err)
+		return TokenData{}, fmt.Errorf("Failed to parse token file: %v", err)
 	}
 
 	return token, nil
@@ -583,8 +583,8 @@ func logMiddleware(next http.HandlerFunc) http.HandlerFunc {
 
 		// Measure processing duration
 		duration := time.Since(startTime)
-		fmt.Printf("处理时间: %v\n", duration)
-		fmt.Printf("=== 请求结束 ===\n\n")
+		fmt.Printf("Processing time: %v\n", duration)
+		fmt.Printf("=== Request ended ===\n\n")
 	}
 }
 
@@ -597,7 +597,7 @@ func startServer(port string) {
 	mux.HandleFunc("/v1/messages", logMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		// Only handle POST requests
 		if r.Method != http.MethodPost {
-			fmt.Printf("错误: 不支持的请求方法\n")
+			fmt.Printf("Error: Unsupported request method\n")
 			http.Error(w, "Only POST requests are supported", http.StatusMethodNotAllowed)
 			return
 		}
@@ -605,27 +605,27 @@ func startServer(port string) {
 		// Get current token
 		token, err := getToken()
 		if err != nil {
-			fmt.Printf("错误: 获取token失败: %v\n", err)
-			http.Error(w, fmt.Sprintf("获取token失败: %v", err), http.StatusInternalServerError)
+			fmt.Printf("Error: Failed to get token: %v\n", err)
+			http.Error(w, fmt.Sprintf("Failed to get token: %v", err), http.StatusInternalServerError)
 			return
 		}
 
 		// Read request body
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
-			fmt.Printf("错误: 读取请求体失败: %v\n", err)
-			http.Error(w, fmt.Sprintf("读取请求体失败: %v", err), http.StatusInternalServerError)
+			fmt.Printf("Error: Failed to read request body: %v\n", err)
+			http.Error(w, fmt.Sprintf("Failed to read request body: %v", err), http.StatusInternalServerError)
 			return
 		}
 		defer r.Body.Close()
 
-		fmt.Printf("\n=========================Anthropic 请求体:\n%s\n=======================================\n", string(body))
+		fmt.Printf("\n=========================Anthropic Request Body:\n%s\n=======================================\n", string(body))
 
 		// Parse Anthropic request
 		var anthropicReq AnthropicRequest
 		if err := jsonStr.Unmarshal(body, &anthropicReq); err != nil {
-			fmt.Printf("错误: 解析请求体失败: %v\n", err)
-			http.Error(w, fmt.Sprintf("解析请求体失败: %v", err), http.StatusBadRequest)
+			fmt.Printf("Error: Failed to parse request body: %v\n", err)
+			http.Error(w, fmt.Sprintf("Failed to parse request body: %v", err), http.StatusBadRequest)
 			return
 		}
 
@@ -645,7 +645,7 @@ func startServer(port string) {
 				available = append(available, k)
 			}
 			errMsg := fmt.Sprintf("{\"message\":\"Unknown or unsupported model: %s\",\"availableModels\":[%s]}", anthropicReq.Model, "\""+strings.Join(available, "\",\"")+"\"")
-			fmt.Printf("错误: 未知模型请求: %s\n", anthropicReq.Model)
+			fmt.Printf("Error: Unknown model request: %s\n", anthropicReq.Model)
 			http.Error(w, errMsg, http.StatusBadRequest)
 			return
 		}
@@ -711,7 +711,7 @@ func startServer(port string) {
 	fmt.Printf("Press Ctrl+C to stop the server\n")
 
 	if err := http.ListenAndServe(":"+port, mux); err != nil {
-		fmt.Printf("启动服务器失败: %v\n", err)
+		fmt.Printf("Failed to start server: %v\n", err)
 		os.Exit(1)
 	}
 }
@@ -738,7 +738,7 @@ func handleStreamRequest(w http.ResponseWriter, anthropicReq AnthropicRequest, a
 	// Serialize request body
 	cwReqBody, err := jsonStr.Marshal(cwReq)
 	if err != nil {
-		sendErrorEvent(w, flusher, "序列化请求失败", err)
+		sendErrorEvent(w, flusher, "Failed to serialize request", err)
 		return
 	}
 
@@ -751,7 +751,7 @@ func handleStreamRequest(w http.ResponseWriter, anthropicReq AnthropicRequest, a
 		bytes.NewBuffer(cwReqBody),
 	)
 	if err != nil {
-		sendErrorEvent(w, flusher, "创建代理请求失败", err)
+		sendErrorEvent(w, flusher, "Failed to create proxy request", err)
 		return
 	}
 
@@ -772,12 +772,12 @@ func handleStreamRequest(w http.ResponseWriter, anthropicReq AnthropicRequest, a
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		fmt.Printf("CodeWhisperer 响应错误，状态码: %d, 响应: %s\n", resp.StatusCode, string(body))
-		sendErrorEvent(w, flusher, "error", fmt.Errorf("状态码: %d", resp.StatusCode))
+		fmt.Printf("CodeWhisperer response error, status code: %d, response: %s\n", resp.StatusCode, string(body))
+		sendErrorEvent(w, flusher, "error", fmt.Errorf("Status code: %d", resp.StatusCode))
 
 		if resp.StatusCode == 403 {
 			refreshToken()
-			sendErrorEvent(w, flusher, "error", fmt.Errorf("CodeWhisperer Token 已刷新，请重试"))
+			sendErrorEvent(w, flusher, "error", fmt.Errorf("CodeWhisperer Token refreshed, please retry"))
 		} else {
 			sendErrorEvent(w, flusher, "error", fmt.Errorf("CodeWhisperer Error: %s ", string(body)))
 		}
@@ -787,7 +787,7 @@ func handleStreamRequest(w http.ResponseWriter, anthropicReq AnthropicRequest, a
 	// Read full response body first
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		sendErrorEvent(w, flusher, "error", fmt.Errorf("CodeWhisperer Error 读取响应失败"))
+		sendErrorEvent(w, flusher, "error", fmt.Errorf("CodeWhisperer Error: Failed to read response"))
 		return
 	}
 
@@ -871,8 +871,8 @@ func handleNonStreamRequest(w http.ResponseWriter, anthropicReq AnthropicRequest
 	// Serialize request body
 	cwReqBody, err := jsonStr.Marshal(cwReq)
 	if err != nil {
-		fmt.Printf("错误: 序列化请求失败: %v\n", err)
-		http.Error(w, fmt.Sprintf("序列化请求失败: %v", err), http.StatusInternalServerError)
+		fmt.Printf("Error: Failed to serialize request: %v\n", err)
+		http.Error(w, fmt.Sprintf("Failed to serialize request: %v", err), http.StatusInternalServerError)
 		return
 	}
 
@@ -885,8 +885,8 @@ func handleNonStreamRequest(w http.ResponseWriter, anthropicReq AnthropicRequest
 		bytes.NewBuffer(cwReqBody),
 	)
 	if err != nil {
-		fmt.Printf("错误: 创建代理请求失败: %v\n", err)
-		http.Error(w, fmt.Sprintf("创建代理请求失败: %v", err), http.StatusInternalServerError)
+		fmt.Printf("Error: Failed to create proxy request: %v\n", err)
+		http.Error(w, fmt.Sprintf("Failed to create proxy request: %v", err), http.StatusInternalServerError)
 		return
 	}
 
@@ -899,8 +899,8 @@ func handleNonStreamRequest(w http.ResponseWriter, anthropicReq AnthropicRequest
 
 	resp, err := client.Do(proxyReq)
 	if err != nil {
-		fmt.Printf("错误: 发送请求失败: %v\n", err)
-		http.Error(w, fmt.Sprintf("发送请求失败: %v", err), http.StatusInternalServerError)
+		fmt.Printf("Error: Failed to send request: %v\n", err)
+		http.Error(w, fmt.Sprintf("Failed to send request: %v", err), http.StatusInternalServerError)
 		return
 	}
 	defer resp.Body.Close()
@@ -908,8 +908,8 @@ func handleNonStreamRequest(w http.ResponseWriter, anthropicReq AnthropicRequest
 	// Read response
 	cwRespBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		fmt.Printf("错误: 读取响应失败: %v\n", err)
-		http.Error(w, fmt.Sprintf("读取响应失败: %v", err), http.StatusInternalServerError)
+		fmt.Printf("Error: Failed to read response: %v\n", err)
+		http.Error(w, fmt.Sprintf("Failed to read response: %v", err), http.StatusInternalServerError)
 		return
 	}
 
@@ -998,8 +998,8 @@ func handleNonStreamRequest(w http.ResponseWriter, anthropicReq AnthropicRequest
 	
 	// Check if response is an error
 	if strings.Contains(string(cwRespBody), "Improperly formed request.") {
-		fmt.Printf("错误: CodeWhisperer返回格式错误: %s\n", respBodyStr)
-		http.Error(w, fmt.Sprintf("请求格式错误: %s", respBodyStr), http.StatusBadRequest)
+		fmt.Printf("Error: CodeWhisperer returned incorrect format: %s\n", respBodyStr)
+		http.Error(w, fmt.Sprintf("Request format error: %s", respBodyStr), http.StatusBadRequest)
 		return
 	}
 
