@@ -155,3 +155,7 @@ After adding, restart Claude Code to pick up the new MCP configuration.
 - Windows: `set` / PowerShell `$env:` format
 - Linux/macOS: `export` format
 - Auto-detects user home directory path
+
+## Credits
+
+Created by Alexandephilia
