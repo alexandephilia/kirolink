@@ -187,10 +187,15 @@ func getMessageContent(content any) string {
 						}
 					}
 				case "tool_use":
-					// DO NOT include tool_use as text (e.g. "[Tool call: name(args)]")
-					// The model will mimic this text pattern instead of using structured
-					// tool calling, causing Claude Code to see text instead of tool_use blocks.
-					// Tool uses are communicated through CodeWhisperer's native mechanism.
+					// Include tool info as XML metadata — NOT as a mimicable text pattern.
+					// Using "[Tool call: name(args)]" caused the model to output tool calls
+					// as text instead of using structured tool calling. XML tags give context
+					// without creating a pattern the model copies.
+					name, _ := m["name"].(string)
+					id, _ := m["id"].(string)
+					if name != "" {
+						texts = append(texts, fmt.Sprintf("<tool_executed name=%q id=%q />", name, id))
+					}
 				case "tool_search": // 2026 agentic feature
 					if query, ok := m["query"].(string); ok {
 						texts = append(texts, fmt.Sprintf("[Tool search: %s]", query))
