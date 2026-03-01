@@ -187,12 +187,10 @@ func getMessageContent(content any) string {
 						}
 					}
 				case "tool_use":
-					name, _ := m["name"].(string)
-					if inputObj, ok := m["input"]; ok {
-						if inputData, err := jsonStr.Marshal(inputObj); err == nil {
-							texts = append(texts, fmt.Sprintf("[Tool call: %s(%s)]", name, string(inputData)))
-						}
-					}
+					// DO NOT include tool_use as text (e.g. "[Tool call: name(args)]")
+					// The model will mimic this text pattern instead of using structured
+					// tool calling, causing Claude Code to see text instead of tool_use blocks.
+					// Tool uses are communicated through CodeWhisperer's native mechanism.
 				case "tool_search": // 2026 agentic feature
 					if query, ok := m["query"].(string); ok {
 						texts = append(texts, fmt.Sprintf("[Tool search: %s]", query))
