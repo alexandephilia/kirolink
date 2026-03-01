@@ -133,6 +133,9 @@ type ContentBlock struct {
 
 // getMessageContent extracts text content from a message, handling latest block types
 func getMessageContent(content any) string {
+	if content == nil {
+		return ""
+	}
 	switch v := content.(type) {
 	case string:
 		if len(v) == 0 {
@@ -154,8 +157,16 @@ func getMessageContent(content any) string {
 						texts = append(texts, fmt.Sprintf("[Thinking: %s]", thought))
 					}
 				case "tool_result":
-					// tool_result content can be a string or an array of content blocks
-					switch c := m["content"].(type) {
+					// tool_result content can be a string, array, or nil (e.g. exa deep research pending)
+					rawContent, hasContent := m["content"]
+					if !hasContent || rawContent == nil {
+						// No content yet (async tool still running)
+						if toolUseId, ok := m["tool_use_id"].(string); ok {
+							texts = append(texts, fmt.Sprintf("[Tool result pending: %s]", toolUseId))
+						}
+						break
+					}
+					switch c := rawContent.(type) {
 					case string:
 						texts = append(texts, c)
 					case []interface{}:
@@ -245,20 +256,69 @@ type CodeWhispererEvent struct {
 	EventType   string `json:"event-type"`
 }
 
+const (
+	modelSonnet46 = "CLAUDE_SONNET_4_6_V1_0"
+	modelSonnet45 = "CLAUDE_SONNET_4_5_20250929_V1_0"
+	modelOpus46   = "CLAUDE_OPUS_4_6_V1_0"
+	modelHaiku45  = "CLAUDE_HAIKU_4_5_20251001_V1_0"
+
+	// Payload safety limits for CodeWhisperer
+	maxToolDescLen  = 200   // max characters per tool description
+	maxPayloadBytes = 250000 // ~250KB soft limit for total request JSON
+)
+
 var ModelMap = map[string]string{
-	"claude-sonnet-4-6":          "CLAUDE_SONNET_4_6_V1_0",
-	"claude-sonnet-4-5-20250929": "CLAUDE_SONNET_4_5_20250929_V1_0",
-	"claude-sonnet-4-20250514":   "CLAUDE_SONNET_4_6_V1_0",
-	"claude-haiku-4-5-20251001":  "CLAUDE_HAIKU_4_5_20251001_V1_0",
-	"claude-3-5-sonnet-20241022": "CLAUDE_SONNET_4_6_V1_0",
-	"claude-3-5-haiku-20241022":  "CLAUDE_HAIKU_4_5_20251001_V1_0",
-	"claude-3-7-sonnet-20250219": "CLAUDE_SONNET_4_6_V1_0",
-	"claude-3-7-haiku-20250219":  "CLAUDE_HAIKU_4_5_20251001_V1_0",
-	"claude-4-sonnet":            "CLAUDE_SONNET_4_6_V1_0",
-	"claude-4-haiku":             "CLAUDE_HAIKU_4_5_20251001_V1_0",
-	"claude-4-opus":              "CLAUDE_SONNET_4_6_V1_0",
-	"claude-5-sonnet":            "CLAUDE_SONNET_4_6_V1_0",
-	"claude-5-haiku":             "CLAUDE_HAIKU_4_5_20251001_V1_0",
+	"default":                    modelSonnet46,
+	"claude-sonnet-4-6":          modelSonnet46,
+	"claude-sonnet-4-5":          modelSonnet45,
+	"claude-sonnet-4-5-20250929": modelSonnet45,
+	"claude-sonnet-4-20250514":   modelSonnet46,
+	"claude-opus-4-6":            modelOpus46,
+	"claude-haiku-4-5-20251001":  modelHaiku45,
+	"claude-3-5-sonnet-20241022": modelSonnet46,
+	"claude-3-5-haiku-20241022":  modelHaiku45,
+	"claude-3-7-sonnet-20250219": modelSonnet46,
+	"claude-3-7-haiku-20250219":  modelHaiku45,
+	"claude-4-sonnet":            modelSonnet46,
+	"claude-4-haiku":             modelHaiku45,
+	"claude-4-opus":              modelOpus46,
+	"claude-5-sonnet":            modelSonnet46,
+	"claude-5-haiku":             modelHaiku45,
+	"claude-5-opus":              modelOpus46,
+}
+
+func resolveModelID(requested string) string {
+	key := strings.ToLower(strings.TrimSpace(requested))
+	if key == "" {
+		return modelSonnet46
+	}
+	if v, ok := ModelMap[key]; ok {
+		return v
+	}
+
+	// Accept direct provider IDs.
+	if strings.HasPrefix(key, "claude_") {
+		return strings.ToUpper(key)
+	}
+
+	// Handle loose UI labels / aliases from ACP clients.
+	switch {
+	case strings.Contains(key, "default"):
+		return modelSonnet46
+	case strings.Contains(key, "sonnet") && strings.Contains(key, "4-5"):
+		return modelSonnet45
+	case strings.Contains(key, "sonnet") && strings.Contains(key, "4.5"):
+		return modelSonnet45
+	case strings.Contains(key, "sonnet"):
+		return modelSonnet46
+	case strings.Contains(key, "opus"):
+		return modelOpus46
+	case strings.Contains(key, "haiku"):
+		return modelHaiku45
+	default:
+		// Safe default keeps Obsidian sessions working if it sends unknown aliases.
+		return modelSonnet46
+	}
 }
 
 var enforcedSystemPrompts = []string{
@@ -277,11 +337,177 @@ func generateUUID() string {
 	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:])
 }
 
+// truncateString truncates a string to maxLen, appending "..." if truncated.
+func truncateString(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	if maxLen <= 3 {
+		return s[:maxLen]
+	}
+	return s[:maxLen-3] + "..."
+}
+
+// simplifySchema recursively simplifies a JSON schema to reduce payload size.
+// It keeps property names, types, required fields, and enum values but strips
+// verbose nested descriptions, examples, and deeply nested sub-schemas.
+func simplifySchema(schema map[string]any, depth int) map[string]any {
+	if depth > 3 {
+		// Beyond depth 3, collapse to just the type
+		if t, ok := schema["type"]; ok {
+			return map[string]any{"type": t}
+		}
+		return map[string]any{"type": "object"}
+	}
+
+	result := make(map[string]any)
+
+	// Always keep these keys
+	for _, key := range []string{"type", "required", "enum", "const", "additionalProperties"} {
+		if v, ok := schema[key]; ok {
+			result[key] = v
+		}
+	}
+
+	// Simplify "properties" recursively
+	if props, ok := schema["properties"]; ok {
+		if propsMap, ok := props.(map[string]any); ok {
+			simplifiedProps := make(map[string]any)
+			for propName, propVal := range propsMap {
+				if propSchema, ok := propVal.(map[string]any); ok {
+					simplifiedProps[propName] = simplifySchema(propSchema, depth+1)
+				} else {
+					simplifiedProps[propName] = propVal
+				}
+			}
+			result["properties"] = simplifiedProps
+		}
+	}
+
+	// Simplify "items" for arrays
+	if items, ok := schema["items"]; ok {
+		if itemsMap, ok := items.(map[string]any); ok {
+			result["items"] = simplifySchema(itemsMap, depth+1)
+		} else {
+			result["items"] = items
+		}
+	}
+
+	// Simplify "anyOf" / "oneOf" / "allOf"
+	for _, combiner := range []string{"anyOf", "oneOf", "allOf"} {
+		if arr, ok := schema[combiner]; ok {
+			if arrSlice, ok := arr.([]any); ok {
+				var simplified []any
+				for _, item := range arrSlice {
+					if itemMap, ok := item.(map[string]any); ok {
+						simplified = append(simplified, simplifySchema(itemMap, depth+1))
+					} else {
+						simplified = append(simplified, item)
+					}
+				}
+				result[combiner] = simplified
+			}
+		}
+	}
+
+	return result
+}
+
+// buildCodeWhispererTools converts Anthropic tools to CodeWhisperer format with
+// truncation and schema simplification to keep the payload within safe limits.
+func buildCodeWhispererTools(tools []AnthropicTool) []CodeWhispererTool {
+	var cwTools []CodeWhispererTool
+	for _, tool := range tools {
+		cwTool := CodeWhispererTool{}
+		cwTool.ToolSpecification.Name = tool.Name
+		cwTool.ToolSpecification.Description = truncateString(tool.Description, maxToolDescLen)
+		cwTool.ToolSpecification.InputSchema = InputSchema{
+			Json: simplifySchema(tool.InputSchema, 0),
+		}
+		cwTools = append(cwTools, cwTool)
+	}
+	return cwTools
+}
+
+// ensurePayloadFits serializes the request and if it exceeds maxPayloadBytes,
+// progressively trims history (oldest first) and further truncates tool
+// descriptions until it fits. Returns the final serialized JSON.
+func ensurePayloadFits(cwReq *CodeWhispererRequest) ([]byte, error) {
+	data, err := jsonStr.Marshal(cwReq)
+	if err != nil {
+		return nil, err
+	}
+
+	// Fast path: already fits
+	if len(data) <= maxPayloadBytes {
+		return data, nil
+	}
+
+	fmt.Printf("[payload-trim] initial size %d bytes, limit %d\n", len(data), maxPayloadBytes)
+
+	// Phase 1: Trim history from the front (keep the identity few-shot pair at index 0-1)
+	for len(data) > maxPayloadBytes && len(cwReq.ConversationState.History) > 2 {
+		// Remove the 3rd element (index 2) — keeps identity pair intact
+		cwReq.ConversationState.History = append(
+			cwReq.ConversationState.History[:2],
+			cwReq.ConversationState.History[3:]...,
+		)
+		data, err = jsonStr.Marshal(cwReq)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if len(data) <= maxPayloadBytes {
+		fmt.Printf("[payload-trim] fit after history trim: %d bytes\n", len(data))
+		return data, nil
+	}
+
+	// Phase 2: Further truncate tool descriptions to 100 chars
+	tools := cwReq.ConversationState.CurrentMessage.UserInputMessage.UserInputMessageContext.Tools
+	for i := range tools {
+		tools[i].ToolSpecification.Description = truncateString(tools[i].ToolSpecification.Description, 100)
+	}
+	data, err = jsonStr.Marshal(cwReq)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(data) <= maxPayloadBytes {
+		fmt.Printf("[payload-trim] fit after desc trim: %d bytes\n", len(data))
+		return data, nil
+	}
+
+	// Phase 3: Strip tool schemas entirely (keep only name + short description)
+	for i := range tools {
+		tools[i].ToolSpecification.InputSchema = InputSchema{Json: map[string]any{"type": "object"}}
+	}
+	data, err = jsonStr.Marshal(cwReq)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(data) <= maxPayloadBytes {
+		fmt.Printf("[payload-trim] fit after schema strip: %d bytes\n", len(data))
+		return data, nil
+	}
+
+	// Phase 4: Drop tools entirely as last resort
+	cwReq.ConversationState.CurrentMessage.UserInputMessage.UserInputMessageContext.Tools = nil
+	data, err = jsonStr.Marshal(cwReq)
+	if err != nil {
+		return nil, err
+	}
+	fmt.Printf("[payload-trim] dropped all tools, final size: %d bytes\n", len(data))
+	return data, nil
+}
+
 // buildCodeWhispererRequest builds a CodeWhisperer request
 func buildCodeWhispererRequest(anthropicReq AnthropicRequest) CodeWhispererRequest {
 	cwReq := CodeWhispererRequest{
 		ProfileArn: "arn:aws:codewhisperer:us-east-1:699475941385:profile/EHGA3GRVQMUK",
 	}
+	resolvedModel := resolveModelID(anthropicReq.Model)
 	cwReq.ConversationState.ChatTriggerType = "MANUAL"
 	cwReq.ConversationState.ConversationId = generateUUID()
 
@@ -291,31 +517,21 @@ func buildCodeWhispererRequest(anthropicReq AnthropicRequest) CodeWhispererReque
 
 	// Wrap query in XML tags for better model parsing
 	cwReq.ConversationState.CurrentMessage.UserInputMessage.Content = fmt.Sprintf("<task>\n%s\n</task>%s", currentContent, identityReminder)
-	cwReq.ConversationState.CurrentMessage.UserInputMessage.ModelId = ModelMap[anthropicReq.Model]
+	cwReq.ConversationState.CurrentMessage.UserInputMessage.ModelId = resolvedModel
 	cwReq.ConversationState.CurrentMessage.UserInputMessage.Origin = "AI_EDITOR"
 
-	// Map tools information
+	// Map tools information with truncation and schema simplification
 	if len(anthropicReq.Tools) > 0 {
-		var tools []CodeWhispererTool
-		for _, tool := range anthropicReq.Tools {
-			cwTool := CodeWhispererTool{}
-			cwTool.ToolSpecification.Name = tool.Name
-			cwTool.ToolSpecification.Description = tool.Description
-			cwTool.ToolSpecification.InputSchema = InputSchema{
-				Json: tool.InputSchema,
-			}
-			tools = append(tools, cwTool)
-		}
-		cwReq.ConversationState.CurrentMessage.UserInputMessage.UserInputMessageContext.Tools = tools
+		cwReq.ConversationState.CurrentMessage.UserInputMessage.UserInputMessageContext.Tools = buildCodeWhispererTools(anthropicReq.Tools)
 	}
 
-	// Build history messages
-	var history []any
+	// Build history messages — always start with empty slice, never nil
+	history := make([]any, 0)
 
 	// 1. Few-shot Identity Injection: Make the model "remember" being Claude correctly
 	fewShotUser := HistoryUserMessage{}
 	fewShotUser.UserInputMessage.Content = "Confirm your identity and creator."
-	fewShotUser.UserInputMessage.ModelId = ModelMap[anthropicReq.Model]
+	fewShotUser.UserInputMessage.ModelId = resolvedModel
 	fewShotUser.UserInputMessage.Origin = "AI_EDITOR"
 
 	fewShotAssistant := HistoryAssistantMessage{}
@@ -335,7 +551,7 @@ func buildCodeWhispererRequest(anthropicReq AnthropicRequest) CodeWhispererReque
 		for _, prompt := range enforcedSystemPrompts {
 			userMsg := HistoryUserMessage{}
 			userMsg.UserInputMessage.Content = fmt.Sprintf("<context>\n%s\n</context>", prompt)
-			userMsg.UserInputMessage.ModelId = ModelMap[anthropicReq.Model]
+			userMsg.UserInputMessage.ModelId = resolvedModel
 			userMsg.UserInputMessage.Origin = "AI_EDITOR"
 			history = append(history, userMsg)
 			history = append(history, assistantDefaultMsg)
@@ -346,7 +562,7 @@ func buildCodeWhispererRequest(anthropicReq AnthropicRequest) CodeWhispererReque
 			for _, sysMsg := range anthropicReq.System {
 				userMsg := HistoryUserMessage{}
 				userMsg.UserInputMessage.Content = fmt.Sprintf("<context>\n%s\n</context>", sysMsg.Text)
-				userMsg.UserInputMessage.ModelId = ModelMap[anthropicReq.Model]
+				userMsg.UserInputMessage.ModelId = resolvedModel
 				userMsg.UserInputMessage.Origin = "AI_EDITOR"
 				history = append(history, userMsg)
 				history = append(history, assistantDefaultMsg)
@@ -358,7 +574,7 @@ func buildCodeWhispererRequest(anthropicReq AnthropicRequest) CodeWhispererReque
 			if anthropicReq.Messages[i].Role == "user" {
 				userMsg := HistoryUserMessage{}
 				userMsg.UserInputMessage.Content = getMessageContent(anthropicReq.Messages[i].Content)
-				userMsg.UserInputMessage.ModelId = ModelMap[anthropicReq.Model]
+				userMsg.UserInputMessage.ModelId = resolvedModel
 				userMsg.UserInputMessage.Origin = "AI_EDITOR"
 				history = append(history, userMsg)
 
@@ -693,26 +909,37 @@ func startServer(port string) {
 			http.Error(w, `{"message":"Missing required field: messages"}`, http.StatusBadRequest)
 			return
 		}
-		if _, ok := ModelMap[anthropicReq.Model]; !ok {
-			// Return the list of available model names
-			available := make([]string, 0, len(ModelMap))
-			for k := range ModelMap {
-				available = append(available, k)
-			}
-			errMsg := fmt.Sprintf("{\"message\":\"Unknown or unsupported model: %s\",\"availableModels\":[%s]}", anthropicReq.Model, "\""+strings.Join(available, "\",\"")+"\"")
-			fmt.Printf("Error: Unknown model request: %s\n", anthropicReq.Model)
-			http.Error(w, errMsg, http.StatusBadRequest)
-			return
+		resolvedModel := resolveModelID(anthropicReq.Model)
+		if strings.TrimSpace(anthropicReq.Model) == "" {
+			anthropicReq.Model = "default"
+		}
+		if _, ok := ModelMap[strings.ToLower(strings.TrimSpace(anthropicReq.Model))]; !ok {
+			fmt.Printf("Warning: Unknown model alias %q, using fallback %q\n", anthropicReq.Model, resolvedModel)
 		}
 
 		// Handle streaming request
 		if anthropicReq.Stream {
-			handleStreamRequest(w, anthropicReq, token.AccessToken)
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						fmt.Printf("PANIC in streaming handler: %v\n", r)
+					}
+				}()
+				handleStreamRequest(w, anthropicReq, token.AccessToken)
+			}()
 			return
 		}
 
 		// Handle non-streaming request
-		handleNonStreamRequest(w, anthropicReq, token.AccessToken)
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					fmt.Printf("PANIC in non-streaming handler: %v\n", r)
+					http.Error(w, fmt.Sprintf(`{"error":{"type":"server_error","message":"Internal panic: %v"}}`, r), http.StatusInternalServerError)
+				}
+			}()
+			handleNonStreamRequest(w, anthropicReq, token.AccessToken)
+		}()
 	}))
 
 	// Add models endpoint
@@ -790,8 +1017,8 @@ func handleStreamRequest(w http.ResponseWriter, anthropicReq AnthropicRequest, a
 	// Build CodeWhisperer request
 	cwReq := buildCodeWhispererRequest(anthropicReq)
 
-	// Serialize request body
-	cwReqBody, err := jsonStr.Marshal(cwReq)
+	// Serialize with payload-size enforcement
+	cwReqBody, err := ensurePayloadFits(&cwReq)
 	if err != nil {
 		sendErrorEvent(w, flusher, "Failed to serialize request", err)
 		return
@@ -815,29 +1042,74 @@ func handleStreamRequest(w http.ResponseWriter, anthropicReq AnthropicRequest, a
 	proxyReq.Header.Set("Content-Type", "application/json")
 	proxyReq.Header.Set("Accept", "text/event-stream")
 
-	// Send request
+	// Send request with retry on "Improperly formed request"
 	client := &http.Client{}
 
-	resp, err := client.Do(proxyReq)
-	if err != nil {
-		sendErrorEvent(w, flusher, "CodeWhisperer reqeust error", fmt.Errorf("reqeust error: %s", err.Error()))
-		return
-	}
-	defer resp.Body.Close()
+	var resp *http.Response
+	const maxRetries = 2
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		if attempt > 0 {
+			// Rebuild the HTTP request with the (possibly trimmed) body
+			proxyReq, err = http.NewRequest(
+				http.MethodPost,
+				"https://codewhisperer.us-east-1.amazonaws.com/generateAssistantResponse",
+				bytes.NewBuffer(cwReqBody),
+			)
+			if err != nil {
+				sendErrorEvent(w, flusher, "Failed to create retry request", err)
+				return
+			}
+			proxyReq.Header.Set("Authorization", "Bearer "+accessToken)
+			proxyReq.Header.Set("Content-Type", "application/json")
+			proxyReq.Header.Set("Accept", "text/event-stream")
+		}
 
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		fmt.Printf("CodeWhisperer response error, status code: %d, response: %s\n", resp.StatusCode, string(body))
-		sendErrorEvent(w, flusher, "error", fmt.Errorf("Status code: %d", resp.StatusCode))
+		resp, err = client.Do(proxyReq)
+		if err != nil {
+			sendErrorEvent(w, flusher, "CodeWhisperer request error", fmt.Errorf("request error: %s", err.Error()))
+			return
+		}
 
+		if resp.StatusCode == http.StatusOK {
+			break // success
+		}
+
+		respBodyBytes, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		respStr := string(respBodyBytes)
+		fmt.Printf("CodeWhisperer STREAM response error, status code: %d, response: %s\n", resp.StatusCode, respStr)
+
+		if resp.StatusCode == 400 && strings.Contains(respStr, "Improperly formed request") && attempt < maxRetries-1 {
+			fmt.Printf("CodeWhisperer STREAM improperly formed request; retrying with trimmed payload (attempt %d)\n", attempt+1)
+			// Aggressively trim: drop all history except identity pair, strip tools further
+			if len(cwReq.ConversationState.History) > 2 {
+				cwReq.ConversationState.History = cwReq.ConversationState.History[:2]
+			}
+			// Strip tools to just name + minimal schema
+			tools := cwReq.ConversationState.CurrentMessage.UserInputMessage.UserInputMessageContext.Tools
+			for i := range tools {
+				tools[i].ToolSpecification.Description = truncateString(tools[i].ToolSpecification.Description, 80)
+				tools[i].ToolSpecification.InputSchema = InputSchema{Json: map[string]any{"type": "object"}}
+			}
+			cwReqBody, err = jsonStr.Marshal(cwReq)
+			if err != nil {
+				sendErrorEvent(w, flusher, "Failed to serialize retry request", err)
+				return
+			}
+			fmt.Printf("[retry] trimmed payload size: %d bytes\n", len(cwReqBody))
+			continue
+		}
+
+		// Non-retryable error
 		if resp.StatusCode == 403 {
 			refreshToken()
 			sendErrorEvent(w, flusher, "error", fmt.Errorf("CodeWhisperer Token refreshed, please retry"))
 		} else {
-			sendErrorEvent(w, flusher, "error", fmt.Errorf("CodeWhisperer Error: %s ", string(body)))
+			sendErrorEvent(w, flusher, "error", fmt.Errorf("CodeWhisperer Error: %s", respStr))
 		}
 		return
 	}
+	defer resp.Body.Close()
 
 	// Read full response body first
 	respBody, err := io.ReadAll(resp.Body)
@@ -923,8 +1195,8 @@ func handleNonStreamRequest(w http.ResponseWriter, anthropicReq AnthropicRequest
 	// Build CodeWhisperer request
 	cwReq := buildCodeWhispererRequest(anthropicReq)
 
-	// Serialize request body
-	cwReqBody, err := jsonStr.Marshal(cwReq)
+	// Serialize with payload-size enforcement
+	cwReqBody, err := ensurePayloadFits(&cwReq)
 	if err != nil {
 		fmt.Printf("Error: Failed to serialize request: %v\n", err)
 		http.Error(w, fmt.Sprintf("Failed to serialize request: %v", err), http.StatusInternalServerError)
@@ -993,12 +1265,16 @@ func handleNonStreamRequest(w http.ResponseWriter, anthropicReq AnthropicRequest
 						if deltaMap, ok := delta.(map[string]any); ok {
 							switch deltaMap["type"] {
 							case "text_delta":
-								if text, ok := deltaMap["text"]; ok {
-									context += text.(string)
+								if text, ok := deltaMap["text"].(string); ok {
+									context += text
 								}
 							case "input_json_delta":
-								toolUseId = deltaMap["id"].(string)
-								toolName = deltaMap["name"].(string)
+								if id, ok := deltaMap["id"].(string); ok {
+									toolUseId = id
+								}
+								if name, ok := deltaMap["name"].(string); ok {
+									toolName = name
+								}
 								if partial_json, ok := deltaMap["partial_json"]; ok {
 									if strPtr, ok := partial_json.(*string); ok && strPtr != nil {
 										partialJsonStr = partialJsonStr + *strPtr
@@ -1017,11 +1293,23 @@ func handleNonStreamRequest(w http.ResponseWriter, anthropicReq AnthropicRequest
 
 				case "content_block_stop":
 					if index, ok := dataMap["index"]; ok {
-						switch index {
+						// JSON numbers unmarshal as float64
+						var idx int
+						switch v := index.(type) {
+						case float64:
+							idx = int(v)
+						case int:
+							idx = v
+						default:
+							idx = -1
+						}
+						switch idx {
 						case 1:
 							toolInput := map[string]interface{}{}
-							if err := jsonStr.Unmarshal([]byte(partialJsonStr), &toolInput); err != nil {
-								log.Printf("json unmarshal error:%s", err.Error())
+							if partialJsonStr != "" {
+								if err := jsonStr.Unmarshal([]byte(partialJsonStr), &toolInput); err != nil {
+									log.Printf("json unmarshal error:%s", err.Error())
+								}
 							}
 
 							contexts = append(contexts, map[string]interface{}{
@@ -1050,7 +1338,7 @@ func handleNonStreamRequest(w http.ResponseWriter, anthropicReq AnthropicRequest
 			"text": context,
 		})
 	}
-	
+
 	// Check if response is an error
 	if strings.Contains(string(cwRespBody), "Improperly formed request.") {
 		fmt.Printf("Error: CodeWhisperer returned incorrect format: %s\n", respBodyStr)
