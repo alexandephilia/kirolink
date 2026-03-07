@@ -1,22 +1,46 @@
 # Kiro Claude Proxy
 
 ```
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │                        kiro-claude-proxy                            │
+  └─────────────────────────────────────────────────────────────────────┘
 
-     Claude Code                OpenClaw
-          |                           |
-          |                           |
-          v                           |
-    kiro-claude-proxy claude          |
-          |                           |
-          v                           |
-    kiro-claude-proxy export          |
-          |                           |
-          v                           |
-    kiro-claude-proxy server          |
-          |                           |
-          v                           v
-        claude                 kiro-claude-proxy server
+  ┌──────────────────┐          ┌──────────────────┐
+  │   Claude Code    │          │    OpenClaw       │
+  │  (Anthropic CLI) │          │  (any API client) │
+  └────────┬─────────┘          └────────┬──────────┘
+           │  Anthropic API                │  Anthropic API
+           │  POST /v1/messages            │  POST /v1/messages
+           └──────────────┬───────────────┘
+                          │
+                          ▼
+           ┌──────────────────────────┐
+           │   kiro-claude-proxy      │
+           │      server :8080        │
+           │                          │
+           │  • Auth token inject     │
+           │  • Request translation   │
+           │  • Response conversion   │
+           └──────────────┬───────────┘
+                          │  AWS CodeWhisperer API
+                          │  (via 127.0.0.1:9000)
+                          ▼
+           ┌──────────────────────────┐
+           │   AWS CodeWhisperer      │
+           │       Backend            │
+           │                          │
+           │  claude-sonnet / opus    │
+           └──────────────────────────┘
 
+  ──────────────────────────────────────────────────────────────────────
+  Setup Flow:
+
+    1. kiro-claude-proxy read     →  inspect token from ~/.aws/sso/cache/
+    2. kiro-claude-proxy refresh  →  refresh access token
+    3. kiro-claude-proxy export   →  eval $(...) sets ANTHROPIC_* env vars
+    4. kiro-claude-proxy server   →  starts proxy on :8080
+    5. claude                     →  Claude Code picks up ANTHROPIC_BASE_URL
+  ──────────────────────────────────────────────────────────────────────
 ```
 
 This is a Go CLI tool for managing Kiro authentication tokens and providing an Anthropic-compatible API proxy.
