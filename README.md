@@ -43,47 +43,53 @@
   ──────────────────────────────────────────────────────────────────────
 ```
 
-This is a Go CLI tool for managing Kiro authentication tokens and providing an Anthropic-compatible API proxy.
+A Go CLI tool that hijacks Kiro's auth tokens and shoves them through an Anthropic-compatible API proxy — so your tools think they're talking to Anthropic, but you're actually riding AWS CodeWhisperer for free. Sneaky bastard, isn't it?
 
-### Claude Code
+### Claude Code in Action
 
 <img width="1920" height="1040" alt="image" src="Kiro-Claude-Code.png" />
 
-## Features
+## What This Beast Actually Does
 
-- Reads token data from `~/.aws/sso/cache/kiro-auth-token.json`
-- Refreshes `accessToken` using `refreshToken`
-- Exports environment variables for external tools
-- Starts an HTTP server as an Anthropic API proxy
+- Plucks your auth token straight from `~/.aws/sso/cache/kiro-auth-token.json`
+- Silently refreshes your `accessToken` before it expires, zero intervention needed
+- Dumps the right environment variables so any Anthropic-compatible tool just works
+- Spins up a local HTTP proxy that intercepts, translates, and forwards your requests like a goddamn middleman
 
-## Build
+## Build It
 
 ```bash
 go build -o kiro-claude-proxy main.go
 ```
 
-## Automated Build
+## CI/CD Pipeline
 
-This project uses GitHub Actions:
+GitHub Actions handles the dirty work automatically:
 
-- Builds Windows, Linux, and macOS binaries when a new GitHub Release is created
-- Runs tests on pushes to `main` and on Pull Requests
+- Cross-compiles release binaries for Windows, Linux, and macOS the moment you tag a new release
+- Runs the full test suite on every push to `main` and every incoming Pull Request — no broken shit gets through
 
-## Usage
+## How to Use This Thing
 
-### 1. Read token information
+### 1. Inspect Your Token
+
+Peek at the raw token data sitting in your cache — useful for debugging auth issues before they blow up in your face.
 
 ```bash
 ./kiro-claude-proxy read
 ```
 
-### 2. Refresh token
+### 2. Refresh the Token
+
+Force-renew your access token using the stored refresh token. Run this when the proxy starts throwing 403s at you.
 
 ```bash
 ./kiro-claude-proxy refresh
 ```
 
-### 3. Export environment variables
+### 3. Wire Up Your Environment
+
+Inject the proxy's environment variables into your shell session so downstream tools automatically route through it.
 
 ```bash
 # Linux/macOS
@@ -93,23 +99,25 @@ eval $(./kiro-claude-proxy export)
 ./kiro-claude-proxy export
 ```
 
-### 4. Start Anthropic API proxy server
+### 4. Fire Up the Proxy Server
+
+Launch the local proxy and let it sit between your tools and AWS. Handles auth, translation, and streaming — all of it.
 
 ```bash
 # Default port 8080
 ./kiro-claude-proxy server
 
-# Custom port
+# Custom port if something else is squatting on 8080
 ./kiro-claude-proxy server 9000
 ```
 
-## Proxy Server Usage
+## Hitting the Proxy Directly
 
-After starting the server:
+Once the server is up, point any Anthropic-compatible request at it:
 
-1. Send Anthropic API-style requests to the local proxy
-2. The proxy adds auth and forwards to the backend
-3. Example:
+1. Fire your request at the local proxy endpoint
+2. The proxy injects auth headers and translates the payload to CodeWhisperer format
+3. Response comes back fully converted — your client never knows the difference
 
 ```bash
 curl -X POST http://localhost:8080/v1/messages \
@@ -117,9 +125,9 @@ curl -X POST http://localhost:8080/v1/messages \
   -d '{"model":"claude-sonnet-4-5-20250929","messages":[{"role":"user","content":"Hello"}],"max_tokens":256}'
 ```
 
-## Token File Format
+## Token File Schema
 
-Expected token file format:
+The proxy expects this exact structure sitting in your SSO cache:
 
 ```json
 {
@@ -129,22 +137,22 @@ Expected token file format:
 }
 ```
 
-## Environment Variables
+## Environment Variables Exported
 
-The tool exports:
+These two variables are all your tools need to blindly trust the proxy:
 
 - `ANTHROPIC_BASE_URL`: `http://localhost:8080`
-- `ANTHROPIC_API_KEY`: current access token
+- `ANTHROPIC_API_KEY`: your current access token, refreshed on the fly
 
-## Known Limitations
+## Known Limitations — Don't Be Surprised
 
-### Web Search
+### Web Search is Dead Here
 
-Claude Code's **native Web Search** tool does not work through this proxy. The CodeWhisperer backend API does not support the tool_use/tool_result round-trip cycle required by Claude Code's built-in tools.
+Claude Code's **native Web Search** tool is completely broken through this proxy. CodeWhisperer's backend refuses to play ball with the `tool_use`/`tool_result` round-trip that Claude Code's built-in tools depend on. It just won't happen.
 
-**Workaround:** Use MCP (Model Context Protocol) servers instead. MCP tools run locally on your machine, so they bypass the proxy entirely.
+**The Fix:** Swap to MCP (Model Context Protocol) servers. They run entirely on your local machine and bypass the proxy altogether — AWS never even sees the request.
 
-Add the following to your `~/.claude.json` under `"mcpServers"`:
+Drop this into `~/.claude.json` under `"mcpServers"`:
 
 ```json
 {
@@ -169,17 +177,17 @@ Add the following to your `~/.claude.json` under `"mcpServers"`:
 }
 ```
 
-- **[mcp-server-fetch](https://github.com/modelcontextprotocol/servers/tree/main/src/fetch)** — Fetches and extracts content from any URL
-- **[exa-mcp-server](https://github.com/exa-labs/exa-mcp-server)** — AI-powered web search via [Exa](https://exa.ai) (requires an API key)
+- **[mcp-server-fetch](https://github.com/modelcontextprotocol/servers/tree/main/src/fetch)** — Pulls and extracts content from any URL on demand
+- **[exa-mcp-server](https://github.com/exa-labs/exa-mcp-server)** — AI-native web search via [Exa](https://exa.ai) (needs an API key, worth it)
 
-After adding, restart Claude Code to pick up the new MCP configuration.
+Restart Claude Code after editing the config or the new servers won't load.
 
-## Cross-Platform Support
+## Cross-Platform — Runs Everywhere
 
-- Windows: `set` / PowerShell `$env:` format
-- Linux/macOS: `export` format
-- Auto-detects user home directory path
+- Windows: outputs `set` / PowerShell `$env:` syntax
+- Linux/macOS: outputs `export` syntax
+- Automatically resolves the correct home directory regardless of platform
 
 ## Credits
 
-Created by Alexandephilia
+Crafted by Alexandephilia
