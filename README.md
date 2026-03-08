@@ -11,7 +11,8 @@
 </pre>
 </p>
 
-[![Claude Code](https://img.shields.io/badge/Claude_Code-integrated-7B2D8B?logo=anthropic&logoColor=white)](https://claude.ai/code)
+[![Claude Code](https://img.shields.io/badge/Claude_Code-integrated-964B00?logo=anthropic&logoColor=white)](https://claude.ai/code)
+[![Kiro](https://img.shields.io/badge/Kiro-integrated-7B2D8B?logo=anthropic&logoColor=white)](https://kiro.dev/)
 ![OpenClaw](https://img.shields.io/badge/OpenClaw-Compatible-FF4B4B)
 ![Go](https://img.shields.io/badge/Go-1.23.3-00ADD8?logo=go&logoColor=white)
 </br>
