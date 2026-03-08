@@ -164,4 +164,4 @@ go test ./parser -v
 
 ## Credit
 
-Crafted by Alexandephilia.
+Crafted by Claude x GPT.
