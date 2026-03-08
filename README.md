@@ -88,6 +88,42 @@ curl -X POST http://localhost:8080/v1/messages \
   -d '{"model":"claude-sonnet-4-5-20250929","messages":[{"role":"user","content":"Hello"}],"max_tokens":256}'
 ```
 
+## Using with OpenClaw
+
+OpenClaw is an open-source AI assistant framework that supports multiple LLM providers. You can configure it to use this proxy as a custom Claude provider.
+
+### Configuration
+
+Add a custom provider to your `openclaw.json` or environment config:
+
+```json
+{
+  "providers": {
+    "kiro-claude": {
+      "api": "anthropic-messages",
+      "baseURL": "http://localhost:8080",
+      "apiKey": "<your-kiro-token>"
+    }
+  }
+}
+```
+
+Get your API key from the proxy:
+
+```bash
+./kiro-claude-proxy read
+```
+
+Or set it via environment variable:
+
+```bash
+export ANTHROPIC_API_KEY=$(./kiro-claude-proxy read | grep "Access Token" | cut -d: -f2 | xargs)
+```
+
+### Available Models
+
+All model aliases listed in the "Model aliases" section work with OpenClaw. Use them in your OpenClaw configuration or requests.
+
 ## Commands
 
 | Command                             | What it does                                                                                 |
