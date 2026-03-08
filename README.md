@@ -23,13 +23,6 @@
 
 In practice: your client sends `POST /v1/messages` to this proxy, the proxy translates the request to AWS CodeWhisperer, sends it to the CodeWhisperer API, and translates the response back on the way out.
 
-| Feature            | Supported natively | Handled by `kirolink` | Notes                    |
-| :----------------- | :----------------: | :-------------------: | :----------------------- |
-| Standard Messaging |         ❌         |          ✅           | Translated cleanly       |
-| Streaming (SSE)    |         ❌         |          ✅           | Handled dynamically      |
-| Local Auth         |         ❌         |          ✅           | Auto-reads AWS SSO cache |
-| Tool Use           |         ❌         |          ⚠️           | WIP / Partial            |
-
 ## What this thing actually does
 
 - Reads tokens from `~/.aws/sso/cache/kiro-auth-token.json`
@@ -213,6 +206,13 @@ go test ./protocol -v
 - `claude` modifies `~/.claude.json`; that's convenient, but it's still changing your config, so don't run it blindly.
 - The documented export path is hardcoded to `http://localhost:8080`.
 - The upstream CodeWhisperer endpoint is hardcoded to `https://codewhisperer.us-east-1.amazonaws.com/generateAssistantResponse`.
+
+| Feature            | Supported natively | Handled by `kirolink` | Notes                    |
+| :----------------- | :----------------: | :-------------------: | :----------------------- |
+| Standard Messaging |         ❌         |          ✅           | Translated cleanly       |
+| Streaming (SSE)    |         ❌         |          ✅           | Handled dynamically      |
+| Local Auth         |         ❌         |          ✅           | Auto-reads AWS SSO cache |
+| Tool Use           |         ❌         |          ⚠️           | WIP / Partial            |
 
 ## Credit
 
