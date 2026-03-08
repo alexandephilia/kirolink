@@ -4,51 +4,51 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a Go CLI tool called `kiro-claude-proxy` that manages Kiro authentication tokens and provides an Anthropic API proxy service. The tool acts as a bridge between Anthropic API requests and AWS CodeWhisperer, translating requests and responses between the two formats.
+This is a Go CLI tool called `kirolink` that manages Kiro authentication tokens and provides an Anthropic API proxy service. The tool acts as a bridge between Anthropic API requests and AWS CodeWhisperer, translating requests and responses between the two formats.
 
 ## Build and Development Commands
 
 ```bash
 # Build the application
-go build -o kiro-claude-proxy main.go
+go build -o kirolink kirolink.go
 
 # Run tests
 go test ./...
 
-# Run specific test in parser package
-go test ./parser -v
+# Run specific test in protocol package
+go test ./protocol -v
 
 # Run the application
-./kiro-claude-proxy [command]
+./kirolink [command]
 ```
 
 ## Application Commands
 
-- `./kiro-claude-proxy read` - Read and display token information
-- `./kiro-claude-proxy refresh` - Refresh the access token using refresh token
-- `./kiro-claude-proxy export` - Export environment variables for other tools
-- `./kiro-claude-proxy server [port]` - Start HTTP proxy server (default port 8080)
+- `./kirolink read` - Read and display token information
+- `./kirolink refresh` - Refresh the access token using refresh token
+- `./kirolink export` - Export environment variables for other tools
+- `./kirolink server [port]` - Start HTTP proxy server (default port 8080)
 
 ## Architecture
 
 ### Core Components
 
-1. **Token Management** (`main.go:337-486`)
+1. **Token Management** (`kirolink.go`)
    - Reads tokens from `~/.aws/sso/cache/kiro-auth-token.json`
    - Handles token refresh via Kiro auth service
    - Cross-platform environment variable export
 
-2. **API Translation** (`main.go:232-303`)
+2. **API Translation** (`kirolink.go`)
    - Converts Anthropic API requests to CodeWhisperer format
    - Maps model names via `ModelMap` (line 218-221)
    - Handles conversation history and system messages
 
-3. **HTTP Proxy Server** (`main.go:514-893`)
+3. **HTTP Proxy Server** (`kirolink.go`)
    - Serves on `/v1/messages` endpoint
    - Supports both streaming and non-streaming requests
    - Automatic token refresh on 403 errors
 
-4. **Response Parser** (`parser/sse_parser.go`)
+4. **Response Parser** (`protocol/sse_parser.go`)
    - Parses binary CodeWhisperer responses
    - Converts to Anthropic-compatible SSE events
    - Handles tool use and text content blocks

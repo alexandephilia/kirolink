@@ -1,14 +1,12 @@
-# Kiro Claude Proxy
+# KiroLink
 
 [![Claude Code](https://img.shields.io/badge/Claude_Code-integrated-7B2D8B?logo=anthropic&logoColor=white)](https://claude.ai/code)
 ![Go](https://img.shields.io/badge/Go-1.23.3-00ADD8?logo=go&logoColor=white)
 ![API](https://img.shields.io/badge/API-Anthropic_compatible-111111?logo=anthropic&logoColor=white)
 
-`kiro-claude-proxy` is a small Go CLI that reads Kiro auth tokens from your local SSO cache, then exposes an Anthropic-shaped local API so tools like Claude Code can talk to it without a bunch of manual bullshit.
+`kirolink` is a small Go CLI that reads Kiro auth tokens from your local SSO cache, then exposes an Anthropic-shaped local API so tools like Claude Code can talk to it without a bunch of manual bullshit.
 
-In practice: your client sends `POST /v1/messages` to this proxy, the proxy translates the request to AWS CodeWhisperer, forwards it through the local backend hop, and translates the response back on the way out.
-
-![Claude Code using the proxy](Claude-Code.jpg)
+In practice: your client sends `POST /v1/messages` to this proxy, the proxy translates the request to AWS CodeWhisperer, sends it to the CodeWhisperer API, and translates the response back on the way out.
 
 ## What this thing actually does
 
@@ -26,7 +24,7 @@ In practice: your client sends `POST /v1/messages` to this proxy, the proxy tran
 ### 1. Build it
 
 ```bash
-go build -o kiro-claude-proxy main.go
+go build -o kirolink kirolink.go
 ```
 
 ### 2. Make sure Kiro is already logged in
@@ -40,7 +38,7 @@ This tool expects a token file at:
 If you want to sanity-check that file first:
 
 ```bash
-./kiro-claude-proxy read
+./kirolink read
 ```
 
 Heads-up: `read` prints both the access token and refresh token, so maybe don't paste that shit into screenshots.
@@ -50,13 +48,13 @@ Heads-up: `read` prints both the access token and refresh token, so maybe don't 
 On macOS/Linux, you can eval the output directly:
 
 ```bash
-eval "$(./kiro-claude-proxy export)"
+eval "$(./kirolink export)"
 ```
 
 On Windows, the command prints both CMD and PowerShell variants for you to copy:
 
 ```bash
-./kiro-claude-proxy export
+./kirolink export
 ```
 
 By default this sets:
@@ -67,14 +65,17 @@ By default this sets:
 ### 4. Start the proxy
 
 ```bash
-./kiro-claude-proxy server
+./kirolink server
 ```
 
 Custom port:
 
 ```bash
-./kiro-claude-proxy server 9000
+./kirolink server 9000
 ```
+
+![Claude Code using kirolink](Claude-Code.jpg)
+> **Note:** Make sure your server proxy is running before using Claude Code with kirolink.
 
 If you use a custom port, set `ANTHROPIC_BASE_URL` manually — the `export` command always prints `http://localhost:8080`.
 
@@ -88,51 +89,15 @@ curl -X POST http://localhost:8080/v1/messages \
   -d '{"model":"claude-sonnet-4-5-20250929","messages":[{"role":"user","content":"Hello"}],"max_tokens":256}'
 ```
 
-## Using with OpenClaw
-
-OpenClaw is an open-source AI assistant framework that supports multiple LLM providers. You can configure it to use this proxy as a custom Claude provider.
-
-### Configuration
-
-Add a custom provider to your `openclaw.json` or environment config:
-
-```json
-{
-  "providers": {
-    "kiro-claude": {
-      "api": "anthropic-messages",
-      "baseURL": "http://localhost:8080",
-      "apiKey": "<your-kiro-token>"
-    }
-  }
-}
-```
-
-Get your API key from the proxy:
-
-```bash
-./kiro-claude-proxy read
-```
-
-Or set it via environment variable:
-
-```bash
-export ANTHROPIC_API_KEY=$(./kiro-claude-proxy read | grep "Access Token" | cut -d: -f2 | xargs)
-```
-
-### Available Models
-
-All model aliases listed in the "Model aliases" section work with OpenClaw. Use them in your OpenClaw configuration or requests.
-
 ## Commands
 
 | Command                             | What it does                                                                                 |
 | ----------------------------------- | -------------------------------------------------------------------------------------------- |
-| `./kiro-claude-proxy read`          | Reads and prints the cached token data.                                                      |
-| `./kiro-claude-proxy refresh`       | Refreshes the token using the stored refresh token and writes the updated file back to disk. |
-| `./kiro-claude-proxy export`        | Prints environment variable commands for the current OS/shell style.                         |
-| `./kiro-claude-proxy claude`        | Updates `~/.claude.json` and sets `hasCompletedOnboarding=true` plus `kiro2cc=true`.         |
-| `./kiro-claude-proxy server [port]` | Starts the local Anthropic-compatible proxy server.                                          |
+| `./kirolink read`          | Reads and prints the cached token data.                                                      |
+| `./kirolink refresh`       | Refreshes the token using the stored refresh token and writes the updated file back to disk. |
+| `./kirolink export`        | Prints environment variable commands for the current OS/shell style.                         |
+| `./kirolink claude`        | Updates `~/.claude.json` and sets `hasCompletedOnboarding=true` plus `kirolink=true`.        |
+| `./kirolink server [port]` | Starts the local Anthropic-compatible proxy server.                                          |
 
 ## HTTP surface
 
@@ -167,17 +132,35 @@ If you want the full live list, ask the running server with `GET /v1/models`.
 1. Read the token from your local Kiro SSO cache.
 2. Accept Anthropic-style requests over HTTP.
 3. Translate them into the backend request format.
-4. Forward them through the local upstream hop at `127.0.0.1:9000`.
+4. Send them to `https://codewhisperer.us-east-1.amazonaws.com/generateAssistantResponse`.
 5. Translate the response back into Anthropic-style JSON or SSE.
 
-#
+## Using with OpenClaw
+
+OpenClaw is an open-source AI assistant framework that supports multiple LLM providers. You can configure it to use this proxy as a custom Claude provider.
+
+### Configuration
+
+Add a custom provider to your `openclaw.json` or environment config:
+
+```json
+{
+  "providers": {
+    "kiro-claude": {
+      "api": "anthropic-messages",
+      "baseURL": "http://localhost:8080",
+      "apiKey": "<your-kiro-token>"
+    }
+  }
+}
+```
 
 ## Development
 
 Build:
 
 ```bash
-go build -o kiro-claude-proxy main.go
+go build -o kirolink kirolink.go
 ```
 
 Run tests:
@@ -186,10 +169,10 @@ Run tests:
 go test ./...
 ```
 
-Run parser tests only:
+Run protocol tests only:
 
 ```bash
-go test ./parser -v
+go test ./protocol -v
 ```
 
 ## Rough edges you should know about
@@ -202,4 +185,4 @@ go test ./parser -v
 
 ## Credit
 
-Crafted by Claude Code.
+Crafted by Alexandephilia.

@@ -1,3 +1,3 @@
-module github.com/bestk/kiro2cc
+module github.com/alexandeism/kirolink
 
 go 1.23.3

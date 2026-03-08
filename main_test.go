@@ -7,6 +7,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -233,5 +235,49 @@ func TestHandleNonStreamRequestCharacterizationMixedTextToolKeepsBothBlocks(t *t
 	input := block["input"].(map[string]any)
 	if got := input["query"]; got != "drift" {
 		t.Fatalf("expected parsed tool input query, got %#v", got)
+	}
+}
+
+func TestSetClaudeUpdatesClaudeConfig(t *testing.T) {
+	tempHome := t.TempDir()
+	t.Setenv("HOME", tempHome)
+
+	claudeConfigPath := filepath.Join(tempHome, ".claude.json")
+	initial := map[string]any{
+		"hasCompletedOnboarding": false,
+		legacyClaudeConfigKey():   true,
+		"theme":                  "dark",
+	}
+	data, err := json.Marshal(initial)
+	if err != nil {
+		t.Fatalf("marshal initial claude config: %v", err)
+	}
+	if err := os.WriteFile(claudeConfigPath, data, 0o644); err != nil {
+		t.Fatalf("write initial claude config: %v", err)
+	}
+
+	setClaude()
+
+	updatedData, err := os.ReadFile(claudeConfigPath)
+	if err != nil {
+		t.Fatalf("read updated claude config: %v", err)
+	}
+
+	var updated map[string]any
+	if err := json.Unmarshal(updatedData, &updated); err != nil {
+		t.Fatalf("unmarshal updated claude config: %v", err)
+	}
+
+	if got := updated["hasCompletedOnboarding"]; got != true {
+		t.Fatalf("expected hasCompletedOnboarding=true, got %#v", got)
+	}
+	if got := updated["kirolink"]; got != true {
+		t.Fatalf("expected kirolink=true, got %#v", got)
+	}
+	if _, ok := updated[legacyClaudeConfigKey()]; ok {
+		t.Fatalf("expected legacy helper key to be removed during config update")
+	}
+	if got := updated["theme"]; got != "dark" {
+		t.Fatalf("expected unrelated config to be preserved, got %#v", got)
 	}
 }

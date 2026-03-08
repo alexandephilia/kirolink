@@ -6,12 +6,12 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/bestk/kiro2cc/parser"
+	"github.com/alexandeism/kirolink/protocol"
 )
 
 func TestAssembleAnthropicResponseMixedTextAndToolUse(t *testing.T) {
 	input := `{"query":"weather"}`
-	events := parser.ParseEvents(testFrames(t,
+	events := protocol.ParseEvents(testFrames(t,
 		map[string]any{"content": "Need tool"},
 		map[string]any{"toolUseId": "toolu_1", "name": "lookup"},
 		map[string]any{"toolUseId": "toolu_1", "name": "lookup", "input": input},
