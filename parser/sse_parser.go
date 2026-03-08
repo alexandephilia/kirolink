@@ -22,9 +22,18 @@ type SSEEvent struct {
 	Data  interface{} `json:"data"`
 }
 
+type parserState struct {
+	currentBlockType  string
+	currentBlockIndex int
+	currentToolUseID  string
+	currentToolName   string
+	nextBlockIndex    int
+}
+
 func ParseEvents(resp []byte) []SSEEvent {
 
 	events := []SSEEvent{}
+	state := parserState{currentBlockIndex: -1}
 
 	r := bytes.NewReader(resp)
 	for {
@@ -71,21 +80,7 @@ func ParseEvents(resp []byte) []SSEEvent {
 		// First try parsing as assistantResponseEvent
 		var assistantEvt assistantResponseEvent
 		if err := json.Unmarshal([]byte(payloadStr), &assistantEvt); err == nil && (assistantEvt.Content != "" || assistantEvt.ToolUseId != "" || assistantEvt.Stop) {
-			events = append(events, convertAssistantEventToSSE(assistantEvt))
-
-			if assistantEvt.ToolUseId != "" && assistantEvt.Name != "" && assistantEvt.Stop {
-				events = append(events, SSEEvent{
-					Event: "message_delta",
-					Data: map[string]interface{}{
-						"type": "message_delta",
-						"delta": map[string]interface{}{
-							"stop_reason":   "tool_use",
-							"stop_sequence": nil,
-						},
-						"usage": map[string]interface{}{"output_tokens": 0},
-					},
-				})
-			}
+			appendAssistantEvent(&events, &state, assistantEvt)
 			continue
 		}
 
@@ -108,60 +103,134 @@ func ParseEvents(resp []byte) []SSEEvent {
 	return events
 }
 
-func convertAssistantEventToSSE(evt assistantResponseEvent) SSEEvent {
-	if evt.Content != "" {
-		return SSEEvent{
+func appendAssistantEvent(events *[]SSEEvent, state *parserState, evt assistantResponseEvent) {
+	switch {
+	case evt.Content != "":
+		if state.currentBlockType != "text" {
+			closeCurrentBlock(events, state)
+			startTextBlock(events, state)
+		}
+		*events = append(*events, SSEEvent{
 			Event: "content_block_delta",
 			Data: map[string]interface{}{
 				"type":  "content_block_delta",
-				"index": 0,
+				"index": state.currentBlockIndex,
 				"delta": map[string]interface{}{
 					"type": "text_delta",
 					"text": evt.Content,
 				},
 			},
+		})
+	case evt.ToolUseId != "":
+		toolName := evt.Name
+		if toolName == "" {
+			toolName = state.currentToolName
 		}
-	} else if evt.ToolUseId != "" && evt.Name != "" && !evt.Stop {
 
-		if evt.Input == nil {
-			return SSEEvent{
-				Event: "content_block_start",
-				Data: map[string]interface{}{
-					"type":  "content_block_start",
-					"index": 1,
-					"content_block": map[string]interface{}{
-						"type":  "tool_use",
-						"id":    evt.ToolUseId,
-						"name":  evt.Name,
-						"input": map[string]interface{}{},
-					},
-				},
-			}
-		} else {
-			return SSEEvent{
+		if state.currentBlockType != "tool_use" || state.currentToolUseID != evt.ToolUseId {
+			closeCurrentBlock(events, state)
+			startToolBlock(events, state, evt.ToolUseId, toolName)
+		}
+
+		if evt.Input != nil {
+			*events = append(*events, SSEEvent{
 				Event: "content_block_delta",
 				Data: map[string]interface{}{
 					"type":  "content_block_delta",
-					"index": 1,
+					"index": state.currentBlockIndex,
 					"delta": map[string]interface{}{
 						"type":         "input_json_delta",
 						"id":           evt.ToolUseId,
-						"name":         evt.Name,
-						"partial_json": evt.Input,
+						"name":         toolName,
+						"partial_json": *evt.Input,
 					},
 				},
-			}
+			})
 		}
 
-	} else if evt.Stop {
-		return SSEEvent{
-			Event: "content_block_stop",
-			Data: map[string]interface{}{
-				"type":  "content_block_stop",
-				"index": 1,
-			},
+		if evt.Stop {
+			closeCurrentBlock(events, state)
+			appendMessageDelta(events, "tool_use")
 		}
+	case evt.Stop:
+		closeCurrentBlock(events, state)
+		appendMessageDelta(events, "end_turn")
+	}
+}
+
+func startTextBlock(events *[]SSEEvent, state *parserState) {
+	index := state.nextBlockIndex
+	state.nextBlockIndex++
+	state.currentBlockType = "text"
+	state.currentBlockIndex = index
+	state.currentToolUseID = ""
+	state.currentToolName = ""
+
+	*events = append(*events, SSEEvent{
+		Event: "content_block_start",
+		Data: map[string]interface{}{
+			"type":  "content_block_start",
+			"index": index,
+			"content_block": map[string]interface{}{
+				"type": "text",
+				"text": "",
+			},
+		},
+	})
+}
+
+func startToolBlock(events *[]SSEEvent, state *parserState, toolUseID, name string) {
+	index := state.nextBlockIndex
+	state.nextBlockIndex++
+	state.currentBlockType = "tool_use"
+	state.currentBlockIndex = index
+	state.currentToolUseID = toolUseID
+	state.currentToolName = name
+
+	*events = append(*events, SSEEvent{
+		Event: "content_block_start",
+		Data: map[string]interface{}{
+			"type":  "content_block_start",
+			"index": index,
+			"content_block": map[string]interface{}{
+				"type":  "tool_use",
+				"id":    toolUseID,
+				"name":  name,
+				"input": map[string]interface{}{},
+			},
+		},
+	})
+}
+
+func closeCurrentBlock(events *[]SSEEvent, state *parserState) {
+	if state.currentBlockType == "" || state.currentBlockIndex < 0 {
+		return
 	}
 
-	return SSEEvent{}
+	*events = append(*events, SSEEvent{
+		Event: "content_block_stop",
+		Data: map[string]interface{}{
+			"type":  "content_block_stop",
+			"index": state.currentBlockIndex,
+		},
+	})
+
+	state.currentBlockType = ""
+	state.currentBlockIndex = -1
+	state.currentToolUseID = ""
+	state.currentToolName = ""
+}
+
+func appendMessageDelta(events *[]SSEEvent, stopReason string) {
+	*events = append(*events, SSEEvent{
+		Event: "message_delta",
+		Data: map[string]interface{}{
+			"type": "message_delta",
+			"delta": map[string]interface{}{
+				"stop_reason":   stopReason,
+				"stop_sequence": nil,
+			},
+			"usage": map[string]interface{}{"output_tokens": 0},
+		},
+	})
 }
