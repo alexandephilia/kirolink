@@ -1,4 +1,4 @@
-<p align="center">
+<p align="left">
 <pre style="font-size: 45%; line-height: 0.9;">
  █████   ████  ███                     █████       █████            █████     
 ▒▒███   ███▒  ▒▒▒                     ▒▒███       ▒▒███            ▒▒███      
