@@ -123,7 +123,6 @@ The proxy currently exposes multiple Anthropic-style aliases, including:
 - `claude-haiku-4-5-20251001`
 - `claude-4-sonnet`
 - `claude-4-opus`
-- `claude-5-sonnet`
 
 If you want the full live list, ask the running server with `GET /v1/models`.
 
