@@ -1,123 +1,86 @@
 # Kiro Claude Proxy
 
-```
-  ┌─────────────────────────────────────────────────────────────────────┐
-  │                        kiro-claude-proxy                            │
-  └─────────────────────────────────────────────────────────────────────┘
+[![Claude Code](https://img.shields.io/badge/Claude_Code-integrated-7B2D8B?logo=anthropic&logoColor=white)](https://claude.ai/code)
+![Go](https://img.shields.io/badge/Go-1.23.3-00ADD8?logo=go&logoColor=white)
+![API](https://img.shields.io/badge/API-Anthropic_compatible-111111?logo=anthropic&logoColor=white)
 
-  ┌──────────────────┐          ┌──────────────────┐
-  │   Claude Code    │          │    OpenClaw       │
-  │  (Anthropic CLI) │          │  (any API client) │
-  └────────┬─────────┘          └────────┬──────────┘
-           │  Anthropic API                │  Anthropic API
-           │  POST /v1/messages            │  POST /v1/messages
-           └──────────────┬───────────────┘
-                          │
-                          ▼
-           ┌──────────────────────────┐
-           │   kiro-claude-proxy      │
-           │      server :8080        │
-           │                          │
-           │  • Auth token inject     │
-           │  • Request translation   │
-           │  • Response conversion   │
-           └──────────────┬───────────┘
-                          │  AWS CodeWhisperer API
-                          │  (via 127.0.0.1:9000)
-                          ▼
-           ┌──────────────────────────┐
-           │   AWS CodeWhisperer      │
-           │       Backend            │
-           │                          │
-           │  claude-sonnet / opus    │
-           └──────────────────────────┘
+`kiro-claude-proxy` is a small Go CLI that reads Kiro auth tokens from your local SSO cache, then exposes an Anthropic-shaped local API so tools like Claude Code can talk to it without a bunch of manual bullshit.
 
-  ──────────────────────────────────────────────────────────────────────
-  Setup Flow:
+In practice: your client sends `POST /v1/messages` to this proxy, the proxy translates the request to AWS CodeWhisperer, forwards it through the local backend hop, and translates the response back on the way out.
 
-    1. kiro-claude-proxy read     →  inspect token from ~/.aws/sso/cache/
-    2. kiro-claude-proxy refresh  →  refresh access token
-    3. kiro-claude-proxy export   →  eval $(...) sets ANTHROPIC_* env vars
-    4. kiro-claude-proxy server   →  starts proxy on :8080
-    5. claude                     →  Claude Code picks up ANTHROPIC_BASE_URL
-  ──────────────────────────────────────────────────────────────────────
-```
+![Claude Code using the proxy](Claude-Code.jpg)
 
-A Go CLI tool that hijacks Kiro's auth tokens and shoves them through an Anthropic-compatible API proxy — so your tools think they're talking to Anthropic, but you're actually riding AWS CodeWhisperer for free. Sneaky bastard, isn't it?
+## What this thing actually does
 
-### Claude Code in Action
+- Reads tokens from `~/.aws/sso/cache/kiro-auth-token.json`
+- Prints shell-ready `ANTHROPIC_*` environment variable setup
+- Starts a local server on port `8080` by default
+- Exposes these endpoints:
+  - `POST /v1/messages`
+  - `GET /v1/models`
+  - `GET /health`
+- Includes a `claude` helper command that edits `~/.claude.json`
 
-<img width="1920" height="1040" alt="image" src="Kiro-Claude-Code.png" />
+## Quick start
 
-## What This Beast Actually Does
-
-- Plucks your auth token straight from `~/.aws/sso/cache/kiro-auth-token.json`
-- Silently refreshes your `accessToken` before it expires, zero intervention needed
-- Dumps the right environment variables so any Anthropic-compatible tool just works
-- Spins up a local HTTP proxy that intercepts, translates, and forwards your requests like a goddamn middleman
-
-## Build It
+### 1. Build it
 
 ```bash
 go build -o kiro-claude-proxy main.go
 ```
 
-## CI/CD Pipeline
+### 2. Make sure Kiro is already logged in
 
-GitHub Actions handles the dirty work automatically:
+This tool expects a token file at:
 
-- Cross-compiles release binaries for Windows, Linux, and macOS the moment you tag a new release
-- Runs the full test suite on every push to `main` and every incoming Pull Request — no broken shit gets through
+```text
+~/.aws/sso/cache/kiro-auth-token.json
+```
 
-## How to Use This Thing
-
-### 1. Inspect Your Token
-
-Peek at the raw token data sitting in your cache — useful for debugging auth issues before they blow up in your face.
+If you want to sanity-check that file first:
 
 ```bash
 ./kiro-claude-proxy read
 ```
 
-### 2. Refresh the Token
+Heads-up: `read` prints both the access token and refresh token, so maybe don't paste that shit into screenshots.
 
-Force-renew your access token using the stored refresh token. Run this when the proxy starts throwing 403s at you.
+### 3. Export the Anthropic env vars
+
+On macOS/Linux, you can eval the output directly:
 
 ```bash
-./kiro-claude-proxy refresh
+eval "$(./kiro-claude-proxy export)"
 ```
 
-### 3. Wire Up Your Environment
-
-Inject the proxy's environment variables into your shell session so downstream tools automatically route through it.
+On Windows, the command prints both CMD and PowerShell variants for you to copy:
 
 ```bash
-# Linux/macOS
-eval $(./kiro-claude-proxy export)
-
-# Windows
 ./kiro-claude-proxy export
 ```
 
-### 4. Fire Up the Proxy Server
+By default this sets:
 
-Launch the local proxy and let it sit between your tools and AWS. Handles auth, translation, and streaming — all of it.
+- `ANTHROPIC_BASE_URL=http://localhost:8080`
+- `ANTHROPIC_API_KEY=<current access token>`
+
+### 4. Start the proxy
 
 ```bash
-# Default port 8080
 ./kiro-claude-proxy server
+```
 
-# Custom port if something else is squatting on 8080
+Custom port:
+
+```bash
 ./kiro-claude-proxy server 9000
 ```
 
-## Hitting the Proxy Directly
+If you use a custom port, set `ANTHROPIC_BASE_URL` manually — the `export` command always prints `http://localhost:8080`.
 
-Once the server is up, point any Anthropic-compatible request at it:
+### 5. Point your client at it
 
-1. Fire your request at the local proxy endpoint
-2. The proxy injects auth headers and translates the payload to CodeWhisperer format
-3. Response comes back fully converted — your client never knows the difference
+Claude Code and other Anthropic-compatible clients can use the exported env vars. You can also hit the proxy directly:
 
 ```bash
 curl -X POST http://localhost:8080/v1/messages \
@@ -125,69 +88,81 @@ curl -X POST http://localhost:8080/v1/messages \
   -d '{"model":"claude-sonnet-4-5-20250929","messages":[{"role":"user","content":"Hello"}],"max_tokens":256}'
 ```
 
-## Token File Schema
+## Commands
 
-The proxy expects this exact structure sitting in your SSO cache:
+| Command                             | What it does                                                                                 |
+| ----------------------------------- | -------------------------------------------------------------------------------------------- |
+| `./kiro-claude-proxy read`          | Reads and prints the cached token data.                                                      |
+| `./kiro-claude-proxy refresh`       | Refreshes the token using the stored refresh token and writes the updated file back to disk. |
+| `./kiro-claude-proxy export`        | Prints environment variable commands for the current OS/shell style.                         |
+| `./kiro-claude-proxy claude`        | Updates `~/.claude.json` and sets `hasCompletedOnboarding=true` plus `kiro2cc=true`.         |
+| `./kiro-claude-proxy server [port]` | Starts the local Anthropic-compatible proxy server.                                          |
 
-```json
-{
-  "accessToken": "your-access-token",
-  "refreshToken": "your-refresh-token",
-  "expiresAt": "2024-01-01T00:00:00Z"
-}
+## HTTP surface
+
+When the server is running, these routes are available:
+
+- `POST /v1/messages` — main Anthropic-compatible message endpoint
+- `GET /v1/models` — returns the currently exposed model aliases
+- `GET /health` — returns `OK`
+
+Example:
+
+```bash
+curl http://localhost:8080/v1/models
 ```
 
-## Environment Variables Exported
+## Model aliases
 
-These two variables are all your tools need to blindly trust the proxy:
+The proxy currently exposes multiple Anthropic-style aliases, including:
 
-- `ANTHROPIC_BASE_URL`: `http://localhost:8080`
-- `ANTHROPIC_API_KEY`: your current access token, refreshed on the fly
+- `default`
+- `claude-sonnet-4-6`
+- `claude-sonnet-4-5`
+- `claude-opus-4-6`
+- `claude-haiku-4-5-20251001`
+- `claude-4-sonnet`
+- `claude-4-opus`
+- `claude-5-sonnet`
 
-## Known Limitations — Don't Be Surprised
+If you want the full live list, ask the running server with `GET /v1/models`.
 
-### Web Search is Dead Here
+## How it works
 
-Claude Code's **native Web Search** tool is completely broken through this proxy. CodeWhisperer's backend refuses to play ball with the `tool_use`/`tool_result` round-trip that Claude Code's built-in tools depend on. It just won't happen.
+1. Read the token from your local Kiro SSO cache.
+2. Accept Anthropic-style requests over HTTP.
+3. Translate them into the backend request format.
+4. Forward them through the local upstream hop at `127.0.0.1:9000`.
+5. Translate the response back into Anthropic-style JSON or SSE.
 
-**The Fix:** Swap to MCP (Model Context Protocol) servers. They run entirely on your local machine and bypass the proxy altogether — AWS never even sees the request.
+## Development
 
-Drop this into `~/.claude.json` under `"mcpServers"`:
+Build:
 
-```json
-{
-  "mcpServers": {
-    "fetch": {
-      "command": "uvx",
-      "args": ["mcp-server-fetch"],
-      "env": {},
-      "disabled": false,
-      "autoApprove": []
-    },
-    "exa": {
-      "command": "npx",
-      "args": ["-y", "exa-mcp-server"],
-      "env": {
-        "EXA_API_KEY": "your-exa-api-key"
-      },
-      "disabled": false,
-      "autoApprove": []
-    }
-  }
-}
+```bash
+go build -o kiro-claude-proxy main.go
 ```
 
-- **[mcp-server-fetch](https://github.com/modelcontextprotocol/servers/tree/main/src/fetch)** — Pulls and extracts content from any URL on demand
-- **[exa-mcp-server](https://github.com/exa-labs/exa-mcp-server)** — AI-native web search via [Exa](https://exa.ai) (needs an API key, worth it)
+Run tests:
 
-Restart Claude Code after editing the config or the new servers won't load.
+```bash
+go test ./...
+```
 
-## Cross-Platform — Runs Everywhere
+Run parser tests only:
 
-- Windows: outputs `set` / PowerShell `$env:` syntax
-- Linux/macOS: outputs `export` syntax
-- Automatically resolves the correct home directory regardless of platform
+```bash
+go test ./parser -v
+```
 
-## Credits
+## Rough edges you should know about
 
-Crafted by Alexandephilia
+- This tool depends on a local Kiro token file already existing.
+- `refresh` writes back to `~/.aws/sso/cache/kiro-auth-token.json`.
+- `claude` modifies `~/.claude.json`; that's convenient, but it's still changing your config, so don't run it blindly.
+- The documented export path is hardcoded to `http://localhost:8080`.
+- The upstream backend hop is hardcoded to `127.0.0.1:9000`.
+
+## Credit
+
+Crafted by Alexandephilia.
