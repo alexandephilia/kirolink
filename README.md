@@ -97,7 +97,9 @@ Custom port:
 ./kirolink server 9000
 ```
 
-![Claude Code using kirolink](Claude-Code.jpg)
+<p align="left">
+  <img src="Claude-Code.jpg" alt="Claude Code using kirolink" width="600">
+</p>
 
 > **Note:** Make sure your server proxy is running before using Claude Code with kirolink.
 
@@ -214,6 +216,30 @@ go test ./protocol -v
 | Local Auth         |         ❌         |          ✅           | Auto-reads AWS SSO cache |
 | Tool Use           |         ❌         |          ⚠️           | WIP / Partial            |
 
-## Credit
+## Credits
 
-Crafted by Alexandephilia x Claude Code
+<table>
+  <tr>
+    <td align="center" valign="top">
+      <a href="https://github.com/alexandephilia">
+        <img src="https://avatars.githubusercontent.com/u/43126944?v=4" width="100px;" height="100px;" style="border-radius: 30%;" alt=""/><br />
+        <sub><b>Alexandephilia</b></sub>
+      </a><br />
+      <sub>Vibing</sub>
+    </td>
+    <td align="center" valign="top">
+      <img src="https://matthiasroder.com/content/images/2026/01/Claude.png" width="100px;" height="100px;" style="border-radius: 30%;" alt=""/><br />
+      <sub><b>Claude</b></sub><br />
+      <sub>Implementation</sub>
+    </td>
+    <td align="center" valign="top">
+      <img src="https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/dark/codex-color.png" width="100px;" height="100px;" style="border-radius: 30%;" alt=""/><br />
+      <sub><b>Codex</b></sub><br />
+      <sub>Planning</sub>
+    </td>
+  </tr>
+</table>
+
+## ⭐ Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=alexandephilia/kiro-claude-proxy&type=Date)](https://star-history.com/#alexandephilia/kiro-claude-proxy)
