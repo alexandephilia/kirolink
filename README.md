@@ -98,7 +98,7 @@ Custom port:
 ```
 
 <p align="left">
-  <img src="Claude-Code.jpg" alt="Claude Code using kirolink" width="600">
+  <img src="Claude-Code.jpg" alt="Claude Code using kirolink" width="600" style="border-radius: 12px;">
 </p>
 
 > **Note:** Make sure your server proxy is running before using Claude Code with kirolink.
@@ -240,6 +240,6 @@ go test ./protocol -v
   </tr>
 </table>
 
-## ⭐ Star History
+## Star History
 
 [![Star History Chart](https://api.star-history.com/svg?repos=alexandephilia/kiro-claude-proxy&type=Date)](https://star-history.com/#alexandephilia/kiro-claude-proxy)
