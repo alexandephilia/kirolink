@@ -1,8 +1,23 @@
-# KiroLink
+<p align="center">
+<pre style="font-size: 65%; line-height: 0.9;">
+ █████   ████  ███                     █████       █████            █████     
+▒▒███   ███▒  ▒▒▒                     ▒▒███       ▒▒███            ▒▒███      
+ ▒███  ███    ████  ████████   ██████  ▒███        ▒███  ████████   ▒███ █████
+ ▒███████    ▒▒███ ▒▒███▒▒███ ███▒▒███ ▒███        ▒███ ▒▒███▒▒███  ▒███▒▒███ 
+ ▒███▒▒███    ▒███  ▒███ ▒▒▒ ▒███ ▒███ ▒███        ▒███  ▒███ ▒███  ▒██████▒  
+ ▒███ ▒▒███   ▒███  ▒███     ▒███ ▒███ ▒███      █ ▒███  ▒███ ▒███  ▒███▒▒███ 
+ █████ ▒▒████ █████ █████    ▒▒██████  ███████████ █████ ████ █████ ████ █████
+▒▒▒▒▒   ▒▒▒▒ ▒▒▒▒▒ ▒▒▒▒▒      ▒▒▒▒▒▒  ▒▒▒▒▒▒▒▒▒▒▒ ▒▒▒▒▒ ▒▒▒▒ ▒▒▒▒▒ ▒▒▒▒ ▒▒▒▒▒ 
+                                                                              
+</pre>
+</p>
 
 [![Claude Code](https://img.shields.io/badge/Claude_Code-integrated-7B2D8B?logo=anthropic&logoColor=white)](https://claude.ai/code)
+![OpenClaw](https://img.shields.io/badge/OpenClaw-Compatible-FF4B4B)
 ![Go](https://img.shields.io/badge/Go-1.23.3-00ADD8?logo=go&logoColor=white)
+</br>
 ![API](https://img.shields.io/badge/API-Anthropic_compatible-111111?logo=anthropic&logoColor=white)
+![AWS CodeWhisperer](https://img.shields.io/badge/AWS-CodeWhisperer-232F3E?logo=amazon-aws&logoColor=white)
 
 `kirolink` is a small Go CLI that reads Kiro auth tokens from your local SSO cache, then exposes an Anthropic-shaped local API so tools like Claude Code can talk to it without a bunch of manual bullshit.
 
@@ -75,6 +90,7 @@ Custom port:
 ```
 
 ![Claude Code using kirolink](Claude-Code.jpg)
+
 > **Note:** Make sure your server proxy is running before using Claude Code with kirolink.
 
 If you use a custom port, set `ANTHROPIC_BASE_URL` manually — the `export` command always prints `http://localhost:8080`.
@@ -91,8 +107,8 @@ curl -X POST http://localhost:8080/v1/messages \
 
 ## Commands
 
-| Command                             | What it does                                                                                 |
-| ----------------------------------- | -------------------------------------------------------------------------------------------- |
+| Command                    | What it does                                                                                 |
+| -------------------------- | -------------------------------------------------------------------------------------------- |
 | `./kirolink read`          | Reads and prints the cached token data.                                                      |
 | `./kirolink refresh`       | Refreshes the token using the stored refresh token and writes the updated file back to disk. |
 | `./kirolink export`        | Prints environment variable commands for the current OS/shell style.                         |
@@ -185,4 +201,4 @@ go test ./protocol -v
 
 ## Credit
 
-Crafted by Alexandephilia.
+Crafted by Alexandephilia x Claude Code
