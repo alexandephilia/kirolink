@@ -134,6 +134,8 @@ If you want the full live list, ask the running server with `GET /v1/models`.
 4. Forward them through the local upstream hop at `127.0.0.1:9000`.
 5. Translate the response back into Anthropic-style JSON or SSE.
 
+#
+
 ## Development
 
 Build:
@@ -160,8 +162,8 @@ go test ./parser -v
 - `refresh` writes back to `~/.aws/sso/cache/kiro-auth-token.json`.
 - `claude` modifies `~/.claude.json`; that's convenient, but it's still changing your config, so don't run it blindly.
 - The documented export path is hardcoded to `http://localhost:8080`.
-- The upstream backend hop is hardcoded to `127.0.0.1:9000`.
+- The upstream CodeWhisperer endpoint is hardcoded to `https://codewhisperer.us-east-1.amazonaws.com/generateAssistantResponse`.
 
 ## Credit
 
-Crafted by Claude x GPT.
+Crafted by Claude Code.
