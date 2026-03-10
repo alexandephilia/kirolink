@@ -236,7 +236,7 @@ go test ./protocol -v
     </td>
     <td align="center" valign="top">
       <img src="https://i.logos-download.com/114346/31977-s2560-1379b284e07d56ea2516b6dedb07d436.png/Jules_Logo_2025_favicon-s2560.png?dl" width="100px;" height="100px;" style="border-radius: 30%;" alt=""/><br />
-      <sub><b>Codex</b></sub><br />
+      <sub><b>Jules</b></sub><br />
       <sub>Planning</sub>
     </td>
   </tr>
