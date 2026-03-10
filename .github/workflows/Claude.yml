@@ -22,28 +22,37 @@ jobs:
       contents: write
       pull-requests: write
       issues: write
+      id-token: write
+      actions: read # Required for Claude to read CI results on PRs
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
         with:
           fetch-depth: 1
-          token: ${{ secrets.GH_PAT }}
-
-      - name: Clean Claude settings (prevent conflicts)
-        run: |
-          rm -rf ~/.claude .claude
-          mkdir -p ~/.claude
 
       - name: Run Claude Code
         id: claude
         uses: anthropics/claude-code-action@v1
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         with:
-          github_token: ${{ secrets.GH_PAT }}
-          claude_args: |
-            --model claude-sonnet-4-6
-            --max-turns 8
-            --no-user-settings
-            --allowedTools "Read,Write,Grep,LS"
-            --disallowedTools "Bash*,Web*,Edit*,Multi*"
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+
+          # Optional: Customize the trigger phrase (default: @claude)
+          # trigger_phrase: "/claude"
+
+          # Optional: Trigger when specific user is assigned to an issue
+          # assignee_trigger: "claude-bot"
+
+          # Optional: Configure Claude's behavior with CLI arguments
+          # claude_args: |
+          #   --model claude-opus-4-1-20250805
+          #   --max-turns 10
+          #   --allowedTools "Bash(npm install),Bash(npm run build),Bash(npm run test:*),Bash(npm run lint:*)"
+          #   --system-prompt "Follow our coding standards. Ensure all new code has tests. Use TypeScript for new files."
+
+          # Optional: Advanced settings configuration
+          # settings: |
+          #   {
+          #     "env": {
+          #       "NODE_ENV": "test"
+          #     }
+          #   }
