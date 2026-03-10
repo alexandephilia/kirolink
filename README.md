@@ -216,7 +216,7 @@ go test ./protocol -v
 | Standard Messaging |         ❌         |          ✅           | Translated cleanly       |
 | Streaming (SSE)    |         ❌         |          ✅           | Handled dynamically      |
 | Local Auth         |         ❌         |          ✅           | Auto-reads AWS SSO cache |
-| Tool Use           |         ❌         |          ⚠️           | WIP / Partial            |
+| Tool Use           |         ❌         |          ✅           | Tool-use/Mcp            |
 
 ## Credits
 
