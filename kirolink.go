@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"crypto/sha256"
 	"github.com/alexandeism/kirolink/protocol"
 )
 
@@ -65,9 +66,18 @@ type CodeWhispererTool struct {
 // HistoryUserMessage defines a user message in history
 type HistoryUserMessage struct {
 	UserInputMessage struct {
-		Content string `json:"content"`
-		ModelId string `json:"modelId"`
-		Origin  string `json:"origin"`
+		Content                 string `json:"content"`
+		ModelId                 string `json:"modelId"`
+		Origin                  string `json:"origin"`
+		UserInputMessageContext struct {
+			ToolResults []struct {
+				Content []struct {
+					Text string `json:"text"`
+				} `json:"content"`
+				Status    string `json:"status"`
+				ToolUseId string `json:"toolUseId"`
+			} `json:"toolResults,omitempty"`
+		} `json:"userInputMessageContext,omitempty"`
 	} `json:"userInputMessage"`
 }
 
@@ -89,6 +99,8 @@ type AnthropicRequest struct {
 	Stream      bool                      `json:"stream"`
 	Temperature *float64                  `json:"temperature,omitempty"`
 	Metadata    map[string]any            `json:"metadata,omitempty"`
+	// KiroLink extensions
+	ConversationId *string `json:"conversation_id,omitempty"`
 }
 
 // AnthropicStreamResponse defines the Anthropic streaming response structure
@@ -326,6 +338,15 @@ func resolveModelID(requested string) string {
 func generateUUID() string {
 	b := make([]byte, 16)
 	rand.Read(b)
+	b[6] = (b[6] & 0x0f) | 0x40 // Version 4
+	b[8] = (b[8] & 0x3f) | 0x80 // Variant bits
+	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:])
+}
+
+// generateDeterministicUUID generates a stable UUID based on input hash
+func generateDeterministicUUID(seed string) string {
+	hash := sha256.Sum256([]byte(seed))
+	b := hash[:16]
 	b[6] = (b[6] & 0x0f) | 0x40 // Version 4
 	b[8] = (b[8] & 0x3f) | 0x80 // Variant bits
 	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:])
@@ -695,7 +716,19 @@ func buildCodeWhispererRequest(anthropicReq AnthropicRequest) CodeWhispererReque
 	}
 	resolvedModel := resolveModelID(anthropicReq.Model)
 	cwReq.ConversationState.ChatTriggerType = "MANUAL"
-	cwReq.ConversationState.ConversationId = generateUUID()
+
+	// Session continuity: use client-provided ID or a deterministic one based on the first message
+	if anthropicReq.ConversationId != nil && *anthropicReq.ConversationId != "" {
+		cwReq.ConversationState.ConversationId = *anthropicReq.ConversationId
+	} else if len(anthropicReq.Messages) > 0 {
+		// Heuristic: Use the first user message as a stable seed for the conversation.
+		// Note: We skip potential system prompts or earlier turns to keep it stable.
+		firstMsg := anthropicReq.Messages[0]
+		cwReq.ConversationState.ConversationId = generateDeterministicUUID(getMessageContent(firstMsg.Content))
+	} else {
+		cwReq.ConversationState.ConversationId = generateUUID()
+	}
+
 	cwReq.ConversationState.CurrentMessage.UserInputMessage.Content = buildCurrentMessageContent(anthropicReq)
 	cwReq.ConversationState.CurrentMessage.UserInputMessage.ModelId = resolvedModel
 	cwReq.ConversationState.CurrentMessage.UserInputMessage.Origin = "AI_EDITOR"
@@ -705,24 +738,26 @@ func buildCodeWhispererRequest(anthropicReq AnthropicRequest) CodeWhispererReque
 		cwReq.ConversationState.CurrentMessage.UserInputMessage.UserInputMessageContext.Tools = buildCodeWhispererTools(anthropicReq.Tools)
 	}
 
-	// NOTE: We do NOT map tool_result to CodeWhisperer's toolResults format.
-	// Instead, tool results are included as text content via getMessageContent,
-	// which the model can understand from context. This avoids format mismatches
-	// with CodeWhisperer's undocumented schema.
+	// Extract tool results for the current message if they exist
+	if lastMsg := anthropicReq.Messages[len(anthropicReq.Messages)-1]; lastMsg.Role == "user" {
+		if results := extractToolResults(lastMsg.Content); len(results) > 0 {
+			cwReq.ConversationState.CurrentMessage.UserInputMessage.UserInputMessageContext.ToolResults = results
+		}
+	}
 
 	// Build history from caller-provided conversation only.
 	history := make([]any, 0, len(anthropicReq.Messages)-1)
 	for i := 0; i < len(anthropicReq.Messages)-1; i++ {
 		msg := anthropicReq.Messages[i]
 		content := getMessageContent(msg.Content)
-		if strings.TrimSpace(content) == "" {
+		if strings.TrimSpace(content) == "" && !hasToolResults(msg.Content) {
 			continue
 		}
 
 		if msg.Role == "assistant" {
 			assistantMsg := HistoryAssistantMessage{}
 			assistantMsg.AssistantResponseMessage.Content = content
-			assistantMsg.AssistantResponseMessage.ToolUses = make([]any, 0)
+			assistantMsg.AssistantResponseMessage.ToolUses = extractToolUses(msg.Content)
 			history = append(history, assistantMsg)
 			continue
 		}
@@ -731,6 +766,12 @@ func buildCodeWhispererRequest(anthropicReq AnthropicRequest) CodeWhispererReque
 		userMsg.UserInputMessage.Content = content
 		userMsg.UserInputMessage.ModelId = resolvedModel
 		userMsg.UserInputMessage.Origin = "AI_EDITOR"
+
+		// Extract tool results for history if they exist
+		if results := extractToolResults(msg.Content); len(results) > 0 {
+			userMsg.UserInputMessage.UserInputMessageContext.ToolResults = results
+		}
+
 		history = append(history, userMsg)
 	}
 	cwReq.ConversationState.History = history
@@ -1306,7 +1347,7 @@ func eventIndex(value any) int {
 	}
 }
 
-func buildAnthropicResponsePayload(model string, inputTokens int, translated translatedAnthropicResponse) map[string]any {
+func buildAnthropicResponsePayload(conversationId, model string, inputTokens int, translated translatedAnthropicResponse) map[string]any {
 	content := make([]map[string]any, 0, len(translated.Blocks))
 	for _, block := range translated.Blocks {
 		switch block.Type {
@@ -1326,12 +1367,13 @@ func buildAnthropicResponsePayload(model string, inputTokens int, translated tra
 	}
 
 	return map[string]any{
-		"content":       content,
-		"model":         model,
-		"role":          "assistant",
-		"stop_reason":   translated.StopReason,
-		"stop_sequence": nil,
-		"type":          "message",
+		"content":         content,
+		"model":           model,
+		"role":            "assistant",
+		"stop_reason":     translated.StopReason,
+		"stop_sequence":   nil,
+		"type":            "message",
+		"conversation_id": conversationId,
 		"usage": map[string]any{
 			"input_tokens":  inputTokens,
 			"output_tokens": translated.OutputTokens,
@@ -1339,19 +1381,20 @@ func buildAnthropicResponsePayload(model string, inputTokens int, translated tra
 	}
 }
 
-func buildAnthropicStreamEvents(messageId, model string, inputTokens int, translated translatedAnthropicResponse) []protocol.SSEEvent {
+func buildAnthropicStreamEvents(conversationId, messageId, model string, inputTokens int, translated translatedAnthropicResponse) []protocol.SSEEvent {
 	events := []protocol.SSEEvent{{
 		Event: "message_start",
 		Data: map[string]any{
 			"type": "message_start",
 			"message": map[string]any{
-				"id":            messageId,
-				"type":          "message",
-				"role":          "assistant",
-				"content":       []any{},
-				"model":         model,
-				"stop_reason":   nil,
-				"stop_sequence": nil,
+				"id":              messageId,
+				"type":            "message",
+				"role":            "assistant",
+				"content":         []any{},
+				"model":           model,
+				"stop_reason":     nil,
+				"stop_sequence":   nil,
+				"conversation_id": conversationId,
 				"usage": map[string]any{
 					"input_tokens":  inputTokens,
 					"output_tokens": 1,
@@ -1586,6 +1629,7 @@ func handleStreamRequest(w http.ResponseWriter, anthropicReq AnthropicRequest, a
 	if len(parsedEvents) > 0 {
 		translated := assembleAnthropicResponse(parsedEvents)
 		streamEvents := buildAnthropicStreamEvents(
+			cwReq.ConversationState.ConversationId,
 			messageId,
 			responseModelID(cwReq, anthropicReq),
 			len(cwReq.ConversationState.CurrentMessage.UserInputMessage.Content),
@@ -1663,6 +1707,7 @@ func handleNonStreamRequest(w http.ResponseWriter, anthropicReq AnthropicRequest
 
 	// Build Anthropic response
 	anthropicResp := buildAnthropicResponsePayload(
+		cwReq.ConversationState.ConversationId,
 		responseModelID(cwReq, anthropicReq),
 		len(cwReq.ConversationState.CurrentMessage.UserInputMessage.Content),
 		translated,

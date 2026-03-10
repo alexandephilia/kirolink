@@ -45,6 +45,7 @@ func TestBuildAnthropicResponsePayloadUsesResolvedModel(t *testing.T) {
 	cwReq.ConversationState.CurrentMessage.UserInputMessage.ModelId = "CLAUDE_SONNET_4_5"
 
 	payload := buildAnthropicResponsePayload(
+		"conv-123",
 		responseModelID(cwReq, AnthropicRequest{Model: "claude-sonnet-4-5-20250929"}),
 		11,
 		translatedAnthropicResponse{
@@ -72,7 +73,7 @@ func TestBuildAnthropicStreamEventsUsesTranslatedBlocks(t *testing.T) {
 		OutputTokens: 2,
 	}
 
-	events := buildAnthropicStreamEvents("msg_123", "CLAUDE_SONNET_4_5", 11, translated)
+	events := buildAnthropicStreamEvents("conv-123", "msg_123", "CLAUDE_SONNET_4_5", 11, translated)
 	if len(events) != 10 {
 		t.Fatalf("expected 10 stream events, got %d", len(events))
 	}
