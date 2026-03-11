@@ -10,6 +10,7 @@ import (
 	"math/rand"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -261,7 +262,7 @@ type CodeWhispererRequest struct {
 		} `json:"currentMessage"`
 		History []any `json:"history"`
 	} `json:"conversationState"`
-	ProfileArn string `json:"profileArn"`
+	ProfileArn string `json:"profileArn,omitempty"`
 }
 
 // CodeWhispererEvent defines a CodeWhisperer event response
@@ -278,13 +279,22 @@ const (
 	modelOpus46   = "CLAUDE_OPUS_4_6_V1_0"
 	modelHaiku45  = "CLAUDE_HAIKU_4_5_20251001_V1_0"
 
+	// Builder ID free tier models — these use dot-notation IDs, not underscore
+	modelBuilderSonnet45 = "claude-sonnet-4.5"
+	modelBuilderHaiku45  = "claude-haiku-4.5"
+	modelBuilderSonnet35 = "CLAUDE_3_5_SONNET_20241022_V2_0" // last-resort fallback
+
+	// IAM Identity Center profile ARN (paid/enterprise accounts)
+	// Leave empty for Builder ID (free tier) accounts
+	profileArnIAM = "arn:aws:codewhisperer:us-east-1:699475941385:profile/EHGA3GRVQMUK"
+
 	// Payload safety limits for CodeWhisperer
 	maxToolDescLen  = 200    // max characters per tool description
 	maxPayloadBytes = 250000 // ~250KB soft limit for total request JSON
 )
 
 var ModelMap = map[string]string{
-	"default":                    modelSonnet46,
+	"default":                    modelSonnet45,
 	"claude-sonnet-4-6":          modelSonnet46,
 	"claude-sonnet-4-5":          modelSonnet45,
 	"claude-sonnet-4-5-20250929": modelSonnet45,
@@ -711,10 +721,22 @@ func hasToolResults(content any) bool {
 
 // buildCodeWhispererRequest builds a CodeWhisperer request
 func buildCodeWhispererRequest(anthropicReq AnthropicRequest) CodeWhispererRequest {
+	profileArn := getProfileArn()
 	cwReq := CodeWhispererRequest{
-		ProfileArn: "arn:aws:codewhisperer:us-east-1:699475941385:profile/EHGA3GRVQMUK",
+		ProfileArn: profileArn,
 	}
+
 	resolvedModel := resolveModelID(anthropicReq.Model)
+	// Builder ID free tier only supports Claude 3.5 models.
+	// Builder ID free tier uses dot-notation model IDs (e.g. "claude-sonnet-4.5")
+	if profileArn == "" {
+		switch resolvedModel {
+		case modelSonnet46, modelSonnet45, modelOpus46:
+			resolvedModel = modelBuilderSonnet45
+		case modelHaiku45:
+			resolvedModel = modelBuilderHaiku45
+		}
+	}
 	cwReq.ConversationState.ChatTriggerType = "MANUAL"
 
 	// Session continuity: use client-provided ID or a deterministic one based on the first message
@@ -850,65 +872,55 @@ func readToken() {
 	}
 }
 
-// refreshToken refreshes the token
+// getKiroDBPath returns the path to Kiro CLI's SQLite database
+func getKiroDBPath() string {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		fmt.Printf("Failed to get home directory: %v\n", err)
+		os.Exit(1)
+	}
+	switch runtime.GOOS {
+	case "darwin":
+		return filepath.Join(homeDir, "Library", "Application Support", "kiro-cli", "data.sqlite3")
+	default:
+		return filepath.Join(homeDir, ".local", "share", "kiro-cli", "data.sqlite3")
+	}
+}
+
+// refreshToken syncs the live token from Kiro CLI's SQLite database.
+// The upstream /refreshToken HTTP endpoint is unreliable; Kiro CLI manages
+// its own session in sqlite and the access token remains valid well beyond
+// the expires_at field — so we just pull it directly from the DB.
 func refreshToken() {
+	dbPath := getKiroDBPath()
+
+	out, err := exec.Command("sqlite3", dbPath,
+		"SELECT value FROM auth_kv WHERE key='kirocli:odic:token';").Output()
+	if err != nil {
+		fmt.Printf("Failed to read Kiro token from database: %v\nRun 'kiro login' to authenticate.\n", err)
+		os.Exit(1)
+	}
+
+	var sqliteToken struct {
+		AccessToken  string `json:"access_token"`
+		RefreshToken string `json:"refresh_token"`
+		ExpiresAt    string `json:"expires_at"`
+	}
+	if err := jsonStr.Unmarshal(bytes.TrimSpace(out), &sqliteToken); err != nil {
+		fmt.Printf("Failed to parse Kiro token from database: %v\nRun 'kiro login' to authenticate.\n", err)
+		os.Exit(1)
+	}
+
+	newToken := TokenData{
+		AccessToken:  sqliteToken.AccessToken,
+		RefreshToken: sqliteToken.RefreshToken,
+		ExpiresAt:    sqliteToken.ExpiresAt,
+	}
+
 	tokenPath := getTokenFilePath()
-
-	// Read current token
-	data, err := os.ReadFile(tokenPath)
-	if err != nil {
-		fmt.Printf("Failed to read token file: %v\n", err)
-		os.Exit(1)
-	}
-
-	var currentToken TokenData
-	if err := jsonStr.Unmarshal(data, &currentToken); err != nil {
-		fmt.Printf("Failed to parse token file: %v\n", err)
-		os.Exit(1)
-	}
-
-	// Prepare refresh request
-	refreshReq := RefreshRequest{
-		RefreshToken: currentToken.RefreshToken,
-	}
-
-	reqBody, err := jsonStr.Marshal(refreshReq)
-	if err != nil {
-		fmt.Printf("Failed to serialize request: %v\n", err)
-		os.Exit(1)
-	}
-
-	// Send refresh request
-	resp, err := http.Post(
-		"https://prod.us-east-1.auth.desktop.kiro.dev/refreshToken",
-		"application/json",
-		bytes.NewBuffer(reqBody),
-	)
-	if err != nil {
-		fmt.Printf("Failed to refresh token request: %v\n", err)
-		os.Exit(1)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		fmt.Printf("Failed to refresh token, status code: %d, response: %s\n", resp.StatusCode, string(body))
-		os.Exit(1)
-	}
-
-	// Parse response
-	var refreshResp RefreshResponse
-	if err := jsonStr.NewDecoder(resp.Body).Decode(&refreshResp); err != nil {
-		fmt.Printf("Failed to parse refresh response: %v\n", err)
-		os.Exit(1)
-	}
-
-	// Update token file
-	newToken := TokenData(refreshResp)
-
 	newData, err := jsonStr.MarshalIndent(newToken, "", "  ")
 	if err != nil {
-		fmt.Printf("Failed to serialize new token: %v\n", err)
+		fmt.Printf("Failed to serialize token: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -917,8 +929,18 @@ func refreshToken() {
 		os.Exit(1)
 	}
 
-	fmt.Println("Token refreshed successfully!")
-	fmt.Printf("New Access Token: %s\n", newToken.AccessToken)
+	fmt.Println("Token synced from Kiro CLI successfully!")
+	fmt.Printf("Access Token: %s...\n", newToken.AccessToken[:20])
+}
+
+// getProfileArn returns the CodeWhisperer profileArn to use.
+// - IAM Identity Center accounts: set KIRO_PROFILE_ARN env var
+// - Builder ID (free tier): leave unset → returns ""
+func getProfileArn() string {
+	if v := os.Getenv("KIRO_PROFILE_ARN"); v != "" {
+		return v
+	}
+	return "" // Builder ID free tier — no profileArn needed
 }
 
 // exportEnvVars exports environment variables
@@ -1552,7 +1574,7 @@ func handleStreamRequest(w http.ResponseWriter, anthropicReq AnthropicRequest, a
 	client := &http.Client{}
 
 	var resp *http.Response
-	const maxRetries = 2
+	const maxRetries = 3
 	for attempt := 0; attempt < maxRetries; attempt++ {
 		if attempt > 0 {
 			// Rebuild the HTTP request with the (possibly trimmed) body
@@ -1604,13 +1626,20 @@ func handleStreamRequest(w http.ResponseWriter, anthropicReq AnthropicRequest, a
 			continue
 		}
 
-		// Non-retryable error
-		if resp.StatusCode == 403 {
+		// 403 = token expired — sync from Kiro CLI sqlite and retry once
+		if resp.StatusCode == 403 && attempt < maxRetries-1 {
+			fmt.Println("Token expired (403), syncing from Kiro CLI database...")
 			refreshToken()
-			sendErrorEvent(w, flusher, "error", fmt.Errorf("CodeWhisperer Token refreshed, please retry"))
-		} else {
-			sendErrorEvent(w, flusher, "error", fmt.Errorf("CodeWhisperer Error: %s", respStr))
+			newToken, tokenErr := getToken()
+			if tokenErr != nil {
+				sendErrorEvent(w, flusher, "error", fmt.Errorf("Token sync failed: %s", tokenErr.Error()))
+				return
+			}
+			accessToken = newToken.AccessToken
+			fmt.Println("Token synced, retrying request...")
+			continue
 		}
+		sendErrorEvent(w, flusher, "error", fmt.Errorf("CodeWhisperer Error: %s", respStr))
 		return
 	}
 	defer resp.Body.Close()
